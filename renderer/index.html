@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self';" />
+  <title>comfyuiWATCHER</title>
+  <link rel="stylesheet" href="../styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <button id="settings-btn" title="Manage hosts">&#9881;</button>
+    </div>
+    <div id="cards"></div>
+  </div>
+  <script src="widgets/job-card.js"></script>
+  <script src="widgets/settings-panel.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

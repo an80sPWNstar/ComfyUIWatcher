@@ -1,0 +1,53 @@
+{
+  "name": "comfyuiwatcher",
+  "version": "0.0.2",
+  "description": "comfyuiWATCHER — a desktop widget showing live step/speed/ETA for any ComfyUI instance(s)",
+  "author": "Bryan",
+  "license": "MIT",
+  "homepage": "https://github.com/an80sPWNstar/ComfyUIWatcher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/an80sPWNstar/ComfyUIWatcher.git"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node test/run.js"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
+  "build": {
+    "appId": "com.comfyuiwatcher.app",
+    "productName": "comfyuiWATCHER",
+    "npmRebuild": false,
+    "publish": null,
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "renderer/**/*",
+      "styles/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility",
+      "maintainer": "Bryan"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  }
+}
