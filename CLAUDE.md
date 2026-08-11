@@ -114,11 +114,11 @@ a custom node that wraps `PromptServer.send_sync` and re-emits each targeted exe
 as a broadcast copy under a `watcher.`-prefixed type (so ComfyUI's own frontends ignore it).
 `comfyui-client.js` strips the prefix and treats them as the originals. **Installed 2026-08-11
 (with Bryan's explicit approval — the auto-mode classifier blocks `D:\ComfyUI_Installs\` writes
-by default) into BOTH installs' `custom_nodes/comfyui-watcher-relay/`. NOT yet loaded**: both
-instances were last (re)started before the copy landed. **Unverified until the first restart —
-then confirm watcher.progress arrives (queue any job from the web UI, watch a card show step
-X/Y) and update this line.** Editing `comfyui-relay/__init__.py` later requires re-copying to
-both installs.
+by default) into BOTH installs' `custom_nodes/comfyui-watcher-relay/`, and VERIFIED live on New
+Main**: relay log line at 09:50:49, `watcher.progress` observed by an independent tap, and the
+card showed Step 9/20 → 10/20 with rate + ETA for a foreign video job. Secondary's copy loads
+whenever that instance next starts (was down at verification time). Editing
+`comfyui-relay/__init__.py` later requires re-copying to both installs.
 
 ### Step-Rate and ETA Estimation
 `_progressHistory` keeps a 15-second rolling window of `{value, atMs}` samples; `stepsPerSec` is
