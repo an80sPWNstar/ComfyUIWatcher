@@ -41,3 +41,12 @@ Append-only session log. Newest entry wins; older entries are history, not instr
 - Obsidian Glass theme adapted from guiTOP styles/main.css tokens (bg #060A12, glass gradient
   cards, glow pills). Topbar is now a drag region.
 - Installer rebuilt: dist/comfyuiWATCHER Setup 0.0.1.exe (12:56). 19 test assertions pass.
+
+## 2026-08-11 14:15 -- v0.0.2 shipped to GitHub
+- Bryan approved the app live, bumped to 0.0.2. Repo synced: github.com/an80sPWNstar/ComfyUIWatcher
+  (main; merged their initial README/LICENSE; repo-local git identity an80sPWNstar set here).
+- Release v0.0.2 published with 3 assets: Windows NSIS exe (built on Windows), AppImage + deb
+  (built in WSL Ubuntu at ~/cw-build — AppImage/deb CANNOT build on native Windows, mksquashfs/
+  fpm are Linux binaries; deb also requires "homepage" in package.json, now set).
+- WSL build dir ~/cw-build left in place for future Linux builds (copy source + package.json in,
+  npx electron-builder --linux).
