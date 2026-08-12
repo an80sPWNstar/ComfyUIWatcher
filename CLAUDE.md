@@ -281,6 +281,26 @@ anything that isn't a well-formed `http(s)` URL rather than crashing on a malfor
 | `npm test` | Run `test/*.test.js` (no framework, no deps) |
 | `npx electron-builder --dir` | Portable build → `dist/win-unpacked/comfyuiWATCHER.exe` (worked 2026-08-11) |
 
+## Ship checklist — what "build the installers and commit/push" means here
+Bryan's standing instruction (2026-08-12): that phrase is one job, not three, and it ends at a
+**published GitHub release**. Do all of it without being asked for each step:
+1. `npm test`, and launch the app to look at the change — this project is judged by eye.
+2. Bump `package.json` version.
+3. **Windows**: `npx electron-builder --win` → `dist/comfyuiWATCHER Setup <v>.exe` + `win-unpacked/`.
+4. **Linux**: build in WSL, do not hand this back as a "needs WSL" caveat. `rsync` the source into
+   `~/cw-build` (its `node_modules` is already there), then `npx electron-builder --linux` →
+   AppImage + deb. From Git Bash, `MSYS_NO_PATHCONV=1 wsl.exe -- bash -l <script>` or `/mnt/...`
+   paths get mangled and node is off PATH. Copy both artifacts back into `dist/`.
+5. **Verify by running the packaged build**, not by exit code: launch the exe and confirm the new
+   work is actually inside it (check the asar for new files; electron-builder happily ships a
+   stale `files` glob).
+6. Commit + push to `main`, then `gh release create v<version>` with **all three installers**
+   attached (exe, AppImage, deb) and real notes — what changed and what got fixed, written for
+   someone who has not read the diff.
+7. Update `HANDOFF.md`.
+
+`dist/` is gitignored — the release is the only place the artifacts are published from.
+
 ## Screenshotting the running app (playwright-core `_electron`)
 Three traps on this machine, all cost time on 2026-08-12 — copy the working recipe:
 1. **Script parse off E: is slow.** `document.readyState` can still be `"loading"` ~2.5s after

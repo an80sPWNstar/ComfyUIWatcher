@@ -89,6 +89,14 @@ Append-only session log. Newest entry wins; older entries are history, not instr
   rendering noise, not a crash). Note the Linux binary is lowercase `comfyuiwatcher`.
   Gotcha for next time: calling wsl.exe from Git Bash mangles /mnt/... paths -- prefix
   MSYS_NO_PATHCONV=1, and use `bash -l` or node is not on PATH.
+- SHIPPED: pushed to main (9170251 + c8a55cb) and released v0.0.3 with all three installers
+  attached -- github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.3, now marked Latest.
+- STANDING INSTRUCTION from Bryan: "build the installers and do a full commit/push" means the
+  whole chain through a published GitHub release, every platform attached. Checklist is in
+  CLAUDE.md under "Ship checklist" -- follow it without being asked for the individual steps.
+- Also dropped the now-unused Orbitron font and added assets/fonts/NOTICE.md (OFL 1.1 attribution
+  for Rajdhani + Share Tech Mono, since the repo is public and the binaries are committed). If
+  strict compliance matters, the full OFL text should replace the link in that file.
 - Still uncommitted. ELAPSED/ETA
   legends and the exact-rate RATE legend still duplicate what the meter shows in magnitude --
   left deliberately (needle can't give an exact figure), revisit if Bryan finds it noisy.
