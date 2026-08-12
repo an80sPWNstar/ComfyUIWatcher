@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { ComfyUIClient } = require('../src/collectors/comfyui-client');
+const { ComfyUIClient, describeModel, describeLatent } = require('../src/collectors/comfyui-client');
 
 function makeClient() {
   return new ComfyUIClient({ name: 'test', url: 'http://127.0.0.1:1' }, () => {});
@@ -175,6 +175,65 @@ function makeClient() {
   client2._applyQueue({ queue_running: [[0, 'pf2', {}, {}, []]] });
   client2._applyHistory('pf2', undefined);
   assert.strictEqual(client2.currentJob, null, 'no history entry clears the job');
+}
+
+// describeModel: the diffusion model wins over other loaders, path and extension are stripped,
+// and a wired input (["12", 0]) is never mistaken for a filename.
+{
+  const graph = {
+    '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'SDXL/juggernautXL_v9.safetensors' } },
+    '2': { class_type: 'VAELoader', inputs: { vae_name: 'sdxl_vae.safetensors' } },
+    '3': { class_type: 'KSampler', inputs: { model: ['1', 0], steps: 20 } },
+  };
+  assert.strictEqual(describeModel(graph), 'juggernautXL_v9');
+
+  const gguf = {
+    '1': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: 'flux1-dev-Q8_0.gguf' } },
+    '2': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'sd15.safetensors' } },
+  };
+  assert.strictEqual(describeModel(gguf), 'flux1-dev-Q8_0', 'unet_name outranks ckpt_name');
+
+  assert.strictEqual(describeModel({}), null, 'empty graph => null, never a guess');
+  assert.strictEqual(
+    describeModel({ '1': { class_type: 'KSampler', inputs: { model: ['9', 0] } } }),
+    null,
+    'a wired input is not a model name',
+  );
+  assert.strictEqual(
+    describeModel({ '1': { class_type: 'CLIPTextEncode', inputs: { text: 'a cat.safetensors' } } }),
+    null,
+    'only known model keys are read — prompt text is never touched',
+  );
+}
+
+// describeLatent: size and frames are separate values — the card labels each one.
+{
+  const img = { '5': { class_type: 'EmptyLatentImage', inputs: { width: 1024, height: 1024, batch_size: 4 } } };
+  assert.deepStrictEqual(describeLatent(img), { size: '1024x1024', frames: null, batch: 4 });
+
+  const vid = { '5': { class_type: 'EmptyHunyuanLatentVideo', inputs: { width: 1280, height: 720, length: 121 } } };
+  assert.deepStrictEqual(describeLatent(vid), { size: '1280x720', frames: 121, batch: null });
+
+  const oneFrame = { '5': { class_type: 'EmptyLatentImage', inputs: { width: 512, height: 512, length: 1, batch_size: 1 } } };
+  assert.strictEqual(describeLatent(oneFrame).frames, null, 'length 1 is not a video, no frames row');
+  assert.strictEqual(describeLatent(oneFrame).batch, 1, 'a batch of 1 is still worth printing');
+
+  const noLatent = { '5': { class_type: 'ImageScale', inputs: { width: 512, height: 512 } } };
+  assert.strictEqual(describeLatent(noLatent).size, null, 'width/height on a non-latent node is not the job size');
+  assert.deepStrictEqual(describeLatent({}), { size: null, frames: null, batch: null });
+}
+
+// _applyQueue folds identity onto the job it starts.
+{
+  const client = makeClient();
+  client._applyQueue({
+    queue_running: [[0, 'pid1', {
+      '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'models/dreamshaper_8.safetensors' } },
+      '5': { class_type: 'EmptyLatentImage', inputs: { width: 832, height: 1216 } },
+    }, {}, []]],
+  });
+  assert.strictEqual(client.currentJob.model, 'dreamshaper_8');
+  assert.strictEqual(client.currentJob.size, '832x1216');
 }
 
 console.log('comfyui-client.test.js: all assertions passed');

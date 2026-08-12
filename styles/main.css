@@ -1,38 +1,78 @@
-/* comfyuiWATCHER — Obsidian Glass theme, adapted from guiTOP's design language
-   (near-black blue app bg, translucent gradient card surfaces, subtle 1px borders,
-   inset-highlight shadows, glow accents, uppercase spaced labels). */
+/* comfyuiWATCHER — "1U" rack theme (2026-08-12).
+   Every host is a module bolted into a rack: graphite faceplate, engraved nameplate, jewel lamp,
+   two recessed instrument wells, LED bargraph. The one bright object on the whole screen is the
+   ivory meter face — nothing else glows harder than the thing you are meant to read first.
+   Seven-segment geometry is still tempsLCD-web's (design_system/components/core/SevenSegment.jsx);
+   the arc gauge it used to sit inside is gone, replaced by the moving-coil rate meter in
+   widgets/lcd.js. Fonts are vendored into assets/fonts/ — the CSP is self-only, nothing loads
+   off the network. */
+
+@font-face {
+  font-family: 'Share Tech Mono';
+  src: url('../assets/fonts/ShareTechMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: block;
+}
+
+/* Rajdhani, uppercase and tracked out, is the silkscreen legend face — squarish, condensed,
+   reads like something screened onto a faceplate. It replaces Orbitron, which was the generic
+   sci-fi choice and made every card look like a spaceship HUD. */
+@font-face {
+  font-family: 'Rajdhani';
+  src: url('../assets/fonts/Rajdhani-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Rajdhani';
+  src: url('../assets/fonts/Rajdhani-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: block;
+}
 
 :root {
   color-scheme: dark;
-  --bg-app:       #060A12;
-  --bg-surface:   rgba(255, 255, 255, 0.035);
-  --bg-surface-2: rgba(255, 255, 255, 0.065);
-  --bg-card:      linear-gradient(145deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.02) 100%);
 
-  --accent:        #22d3ee;
-  --accent-deep:   #0891b2;
-  --accent-glow:   rgba(34, 211, 238, 0.08);
+  /* Chassis and faceplate — warm graphite, deliberately not near-black. */
+  --chassis:    #101215;
+  --face:       #272B30;
+  --face-hi:    #31363B;
+  --face-lo:    #16191C;
+  --well:       #0E1113;
 
-  --status-online:     #00D4AA;
-  --status-offline:    #FF4757;
-  --status-connecting: #FFC857;
-  --finished-success:  #00D4AA;
-  --finished-error:    #FF4757;
+  /* Silkscreen ink. */
+  --legend:     #D8D2C4;
+  --legend-mid: #9A9486;
+  --legend-dim: #6B675E;
 
-  --text-primary:   rgba(255, 255, 255, 0.92);
-  --text-secondary: rgba(255, 255, 255, 0.55);
-  --text-dim:       rgba(255, 255, 255, 0.30);
+  /* The instrument face: the brightest surface in the app, and the only warm one. */
+  --meter-face: #EDE3C6;
+  --meter-ink:  #23211C;
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-card:   rgba(255, 255, 255, 0.10);
-  --border-hover:  rgba(255, 255, 255, 0.18);
+  /* Lamps. One per state, and every lit element in a card inherits the card's --lit. */
+  --lamp-run:   #FFA22C;
+  --lamp-ok:    #46C68F;
+  --lamp-fault: #E24B3A;
+  --lamp-idle:  #7C8A94;
+  --lamp-wait:  #E0B341;
 
-  --radius: 10px;
-  --radius-sm: 6px;
-  --gap: 14px;
+  --bevel-hi: rgba(255, 255, 255, 0.075);
+  --bevel-lo: rgba(0, 0, 0, 0.55);
+  --hairline: rgba(255, 255, 255, 0.07);
 
-  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  --shadow-hover: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  --radius: 5px;
+  --radius-sm: 3px;
+  --gap: 12px;
+
+  --font-legend: 'Rajdhani', 'Segoe UI Semibold', 'Segoe UI', sans-serif;
+  --font-mono: 'Share Tech Mono', Consolas, 'Courier New', monospace;
+  --text-glow-soft: 0 0 6px currentColor;
+  --transition-normal: 200ms ease;
+
+  /* Card state colour. Set once per card state; lamp, numerals, bargraph and node strip all
+     read from it, so a new lit element never hardcodes a colour. */
+  --lit: var(--lamp-idle);
 }
 
 *, *::before, *::after {
@@ -43,9 +83,12 @@ body {
   margin: 0;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg-app);
-  color: var(--text-primary);
-  font-family: 'Segoe UI', -apple-system, system-ui, sans-serif;
+  /* Brushed chassis: 1px vertical grain, invisible individually, reads as metal in bulk. */
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #14171A 0%, var(--chassis) 55%, #0C0E10 100%);
+  color: var(--legend);
+  font-family: var(--font-legend);
   font-size: 13px;
 }
 
@@ -55,215 +98,742 @@ body {
   flex-direction: column;
 }
 
-/* ── Top bar (draggable, like guiTOP's tab bar) ── */
+/* ── Chassis label strip (draggable) ── */
 #topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-shrink: 0;
-  padding: 10px var(--gap);
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px var(--gap);
+  background: linear-gradient(180deg, var(--face-hi) 0%, var(--face) 60%, var(--face-lo) 100%);
+  border-bottom: 1px solid #000;
+  box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 4px 14px rgba(0, 0, 0, 0.5);
   -webkit-app-region: drag;
   user-select: none;
 }
 
 #topbar-title {
+  font-family: var(--font-legend);
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--legend);
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  text-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+  letter-spacing: 0.28em;
+  /* Engraved: dark line above, light line below. */
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.09);
+}
+
+#topbar-title::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3d4, var(--lamp-run) 55%, #7a4a08 100%);
+  box-shadow: 0 0 7px rgba(255, 162, 44, 0.7), 0 0 1px 1px rgba(0, 0, 0, 0.6) inset;
+  vertical-align: middle;
+}
+
+#topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#skin-select {
+  -webkit-app-region: no-drag;
+  background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
+  border: 1px solid #0A0C0E;
+  border-radius: var(--radius-sm);
+  color: var(--legend-mid);
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding: 4px 6px;
+  cursor: pointer;
+  box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+#skin-select:hover { color: var(--legend); }
+
+#skin-select:focus-visible {
+  outline: 2px solid var(--lamp-run);
+  outline-offset: 2px;
+}
+
+/* The dropdown list itself is drawn by the OS — give it readable colours in both skins. */
+#skin-select option {
+  background: #1C1F23;
+  color: #D8D2C4;
 }
 
 #settings-btn {
   -webkit-app-region: no-drag;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-card);
+  background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
+  border: 1px solid #0A0C0E;
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 14px;
-  padding: 2px 9px;
+  color: var(--legend-mid);
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 10px;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition: color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 #settings-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-hover);
-  box-shadow: 0 0 12px var(--accent-glow);
+  color: var(--legend);
 }
 
-/* ── Card grid ── */
+#settings-btn:active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6) inset;
+}
+
+#settings-btn:focus-visible {
+  outline: 2px solid var(--lamp-run);
+  outline-offset: 2px;
+}
+
+/* ── Rack of modules ── */
 #cards {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  /* Cards set overflow:hidden, which zeroes their automatic minimum size — so `auto` rows in a
+     definite-height scroll container squash every card to an equal share instead of overflowing
+     into the scrollbar. Measured 2026-08-12: 9 cards at 620x1000 rendered 83px tall each,
+     clipping everything below the node row. max-content rows keep each card at its own height. */
+  grid-auto-rows: max-content;
   align-content: start;
   gap: var(--gap);
   padding: var(--gap);
 }
 
+#cards::-webkit-scrollbar { width: 9px; }
+#cards::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); }
+#cards::-webkit-scrollbar-thumb {
+  background: #363B41;
+  border-radius: 5px;
+}
+#cards::-webkit-scrollbar-thumb:hover { background: #454B52; }
+
 .job-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-card);
+  position: relative;
+  /* Container query unit, not viewport: at 700px wide the grid runs two columns, so a card can
+     be narrow inside a wide window. The layout has to answer to the card's own width. */
+  container-type: inline-size;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.01) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, var(--face-hi) 0%, var(--face) 18%, #22262A 100%);
+  border: 1px solid #07090A;
   border-radius: var(--radius);
-  padding: 14px;
-  box-shadow: var(--shadow-card);
-  transition: border-color 0.25s, box-shadow 0.25s;
+  padding: 12px 16px 11px;
+  box-shadow:
+    0 1px 0 var(--bevel-hi) inset,
+    0 -1px 0 var(--bevel-lo) inset,
+    0 3px 10px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transition: box-shadow var(--transition-normal);
 }
 
 .job-card:hover {
-  border-color: var(--border-hover);
-  box-shadow: var(--shadow-hover), 0 0 20px var(--accent-glow);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.11) inset,
+    0 -1px 0 var(--bevel-lo) inset,
+    0 4px 16px rgba(0, 0, 0, 0.6);
 }
 
-.job-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
+/* Corner screws — slot heads, lit from the top left like everything else on the plate. */
+.jc-bolt {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background:
+    linear-gradient(90deg, transparent 42%, rgba(0, 0, 0, 0.55) 42% 58%, transparent 58%),
+    radial-gradient(circle at 34% 28%, #6C737A, #3A4046 60%, #23282C 100%);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
-.job-card-name {
+.jc-bolt--tl { top: 6px; left: 6px; }
+.jc-bolt--tr { top: 6px; right: 6px; }
+.jc-bolt--bl { bottom: 6px; left: 6px; }
+.jc-bolt--br { bottom: 6px; right: 6px; }
+
+.job-card[data-status='offline'] { --lit: var(--lamp-idle); }
+.job-card[data-status='connecting'] { --lit: var(--lamp-wait); }
+.job-card--running { --lit: var(--lamp-run); }
+.job-card--finished-success { --lit: var(--lamp-ok); }
+.job-card--finished-error { --lit: var(--lamp-fault); }
+
+/* Blanking panel: a host with no job keeps its nameplate and lamp and drops the instruments.
+   The state word (Idle / Unreachable) rides the strip where the node name normally goes. */
+.job-card--blank .jc-well--meter,
+.job-card--blank .jc-readout,
+.job-card--blank .jc-times,
+.job-card--blank .jc-bar {
+  display: none;
+}
+
+.job-card--blank .jc-body { margin-bottom: 0; }
+
+.job-card--blank .jc-well--readout {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.job-card--blank .jc-node {
+  font-family: var(--font-legend);
   font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.job-card-status {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
+  color: var(--legend-dim);
+  background: none;
+  border-left: none;
+  padding: 2px 0 0 6px; /* line up with the nameplate above it */
+}
+
+/* An offline module is dark, not hidden: the faceplate stays, the instruments go cold. */
+.job-card[data-status='offline'] .meter,
+.job-card[data-status='offline'] .jc-readout {
+  filter: brightness(0.55) saturate(0.6);
+}
+
+/* ── Faceplate header ── */
+.jc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 9px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #0B0D0F;
+  box-shadow: 0 1px 0 var(--bevel-hi);
+}
+
+/* Jewel lamp: domed lens, hot core, coloured halo on the plate around it. */
+.jc-jewel {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: radial-gradient(circle at 34% 28%, #ffffff 4%, var(--lit) 46%, rgba(0, 0, 0, 0.75) 100%);
+  box-shadow:
+    0 0 8px var(--lit),
+    0 0 1px 1px rgba(0, 0, 0, 0.7) inset,
+    0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.job-card--running .jc-jewel {
+  animation: jewel-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes jewel-pulse {
+  0%, 100% { box-shadow: 0 0 9px var(--lit), 0 0 1px 1px rgba(0, 0, 0, 0.7) inset; }
+  50% { box-shadow: 0 0 3px var(--lit), 0 0 1px 1px rgba(0, 0, 0, 0.7) inset; }
+}
+
+/* Engraved nameplate: text cut into the plate, highlight on the lower edge of the cut. */
+.jc-name {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #B9B3A6;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.75), 0 1px 0 rgba(255, 255, 255, 0.08);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jc-queue,
+.jc-status {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  flex-shrink: 0;
+}
+
+.jc-queue {
+  color: var(--legend-dim);
+  font-family: var(--font-mono);
   letter-spacing: 0.08em;
-  padding: 2px 9px;
-  border-radius: 10px;
-  border: 1px solid var(--border-card);
-  background: var(--bg-surface);
 }
 
-.job-card-status--online {
-  color: var(--status-online);
-  border-color: rgba(0, 212, 170, 0.4);
-  text-shadow: 0 0 10px rgba(0, 212, 170, 0.5);
-}
-.job-card-status--offline {
-  color: var(--status-offline);
-  border-color: rgba(255, 71, 87, 0.4);
-  text-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
-}
-.job-card-status--connecting {
-  color: var(--status-connecting);
-  border-color: rgba(255, 200, 87, 0.4);
-  text-shadow: 0 0 10px rgba(255, 200, 87, 0.4);
+.jc-queue--active { color: var(--legend-mid); }
+
+/* Status is silkscreened, not a pill — the lamp is what carries the colour. */
+.jc-status {
+  color: var(--legend-dim);
+  padding-left: 10px;
+  border-left: 1px solid #0B0D0F;
+  box-shadow: -1px 0 0 var(--bevel-hi);
 }
 
-.job-card-node {
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  min-height: 1.2em;
+.jc-status--online { color: var(--legend-mid); }
+.jc-status--offline { color: #8A6B68; }
+.jc-status--connecting { color: #9A8A5E; }
+
+/* ── Instrument wells ── */
+.jc-body {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+
+.jc-well {
+  position: relative;
+  background: linear-gradient(180deg, var(--well) 0%, #12161A 100%);
+  border: 1px solid #05070A;
+  border-radius: var(--radius-sm);
+  /* Recessed: shadow falls in from the top edge of the cut-out. */
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.75) inset,
+    0 1px 0 var(--bevel-hi);
+  padding: 9px 10px 7px;
+}
+
+.jc-well--meter {
+  flex: 0 0 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jc-well--readout {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jc-well-legend {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--legend-dim);
+  text-align: center;
+  transition: color 250ms ease, text-shadow 250ms ease;
+}
+
+/* Legend printed directly above its own readout, left-aligned with the digits. */
+.jc-well-legend--over {
+  text-align: left;
+  margin-bottom: 1px;
+}
+
+/* Lit while the instrument under it is reading something real. */
+.jc-well--live .jc-well-legend {
+  color: var(--lit);
+  text-shadow: var(--text-glow-soft);
+}
+
+/* ── Moving-coil rate meter ── */
+.meter {
+  position: relative;
+  width: 100%;
+}
+
+.meter-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.meter-face {
+  fill: var(--meter-face);
+  stroke: #0A0C0E;
+  stroke-width: 1;
+  transition: fill 400ms ease;
+}
+
+.meter-tick {
+  stroke: rgba(35, 33, 28, 0.45);
+  stroke-width: 1;
+}
+
+.meter-tick--major {
+  stroke: var(--meter-ink);
+  stroke-width: 1.7;
+}
+
+/* The 1:1 mark, where s/it and it/s cross and the face changes unit. */
+.meter-tick--centre {
+  stroke: var(--meter-ink);
+  stroke-width: 2.2;
+}
+
+.meter-label {
+  fill: var(--meter-ink);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 9px;
+  text-anchor: middle;
+}
+
+/* Unit words: the half the needle is reading is printed in pointer red, the other stays faint.
+   This is what makes a two-unit face legible instead of ambiguous — at any moment exactly one
+   unit is live, and it is the same one the RATE legend is printing. */
+.meter-unit {
+  fill: rgba(35, 33, 28, 0.45);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  transition: fill 250ms ease;
+}
+
+.meter--reading-slow .meter-unit--slow,
+.meter--reading-fast .meter-unit--fast {
+  fill: #C2352A;
+}
+
+
+/* The needle is the only red thing on the instrument — pointer red, the way a moving-coil meter
+   distinguishes the pointer from the printed scale. Scale ink stays dark, ticks stay grey, so
+   three things are three colours: what is printed, what it is graduated in, and where it points. */
+.meter-needle {
+  stroke: #C2352A;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.4));
+}
+
+.meter-hub {
+  fill: #8E2B22;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 0.8;
+}
+
+/* Curved glass over the face. Stop colours live here so the sheen dims with the backlight. */
+.meter-glass { pointer-events: none; }
+.meter-sheen-hi { stop-color: rgba(255, 255, 255, 0.34); }
+.meter-sheen-lo { stop-color: rgba(255, 255, 255, 0); }
+
+.meter-nosignal {
+  fill: rgba(216, 210, 196, 0.3);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-anchor: middle;
+  visibility: hidden;
+}
+
+/* No rate to show: the face is unlit — a backlit instrument with nothing to measure goes dark,
+   the needle rests at its stop, and the legend says so. This is also what keeps a rack of idle
+   hosts quiet: the ivory face only glows on the module that is actually sampling. Never a
+   resting value that could be mistaken for a measurement. */
+.meter--nosignal .meter-face { fill: #191C1F; }
+.meter--nosignal .meter-tick { stroke: rgba(216, 210, 196, 0.14); }
+.meter--nosignal .meter-tick--major { stroke: rgba(216, 210, 196, 0.26); }
+.meter--nosignal .meter-label { fill: rgba(216, 210, 196, 0.28); }
+.meter--nosignal .meter-unit { fill: rgba(216, 210, 196, 0.2); }
+.meter--nosignal .meter-sheen-hi { stop-color: rgba(255, 255, 255, 0.05); }
+.meter--nosignal .meter-nosignal { visibility: visible; }
+.meter--nosignal .meter-needle { stroke: rgba(194, 53, 42, 0.35); }
+.meter--nosignal .meter-hub { fill: rgba(142, 43, 34, 0.4); }
+
+/* ── Seven-segment readout ── */
+.jc-readout {
+  display: flex;
+  align-items: flex-start;
+  gap: 26px; /* the numerals need air around them — at 14px the plate crowded the digits */
+}
+
+.jc-readout-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+/* Job identity plate — fills the run of empty well to the right of the numerals. */
+.jc-ident {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 1px;
+  overflow: hidden;
+}
+
+.jc-ident-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Size and the count sit side by side under the model name, each keeping its own label.
+   These two size to their content and never wrap — "BATCH SIZE" broke over two lines and
+   knocked the pair out of alignment. Only the model name ellipsises. */
+.jc-ident-pair {
+  display: flex;
+  flex-wrap: wrap; /* narrow card: the count drops under the size rather than clipping */
+  gap: 5px 14px;
+  min-width: 0;
+}
+
+.jc-ident-pair .jc-ident-row {
+  flex: 0 0 auto;
+}
+
+.jc-ident-pair .jc-ident-label {
+  white-space: nowrap;
+  letter-spacing: 0.12em; /* "BATCH SIZE" is a long label for a narrow column */
+}
+
+.jc-ident-row--empty { display: none; }
+
+.jc-ident-label {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--legend-dim);
+}
+
+.jc-ident-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--legend-mid);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ── Progress ── */
-.job-card-progress-track {
-  height: 12px;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  margin-bottom: 10px;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+.lcd {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  color: var(--lit);
 }
 
-.job-card-progress-fill {
+.lcd-digits {
+  display: flex;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.lcd--text .lcd-digits { visibility: hidden; }
+
+.lcd-digit {
+  display: block;
+  width: 21px;
+  height: 38px;
+  flex-shrink: 0;
+}
+
+.lcd--wide .lcd-digit {
+  width: 15px;
+  height: 27px;
+}
+
+.lcd-seg {
+  fill: currentColor;
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+
+.lcd-seg--ghost { opacity: 0.07; }
+
+.lcd-seg--on { opacity: 1; }
+
+.lcd-lit { filter: drop-shadow(0 0 4px currentColor); }
+
+.lcd-text {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  color: var(--legend-dim);
+}
+
+.lcd--text .lcd-text { display: flex; }
+
+/* ── Current node ── */
+.jc-node {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--legend);
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border-left: 2px solid var(--lit);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-card--finished-success .jc-node,
+.job-card--finished-error .jc-node {
+  color: var(--lit);
+  text-shadow: var(--text-glow-soft);
+}
+
+/* ── Legend rows ── */
+.jc-times {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.jc-legend {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jc-legend-label {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--legend-dim);
+  flex-shrink: 0;
+}
+
+.jc-legend-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--legend);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jc-legend-value--empty { color: var(--legend-dim); }
+
+/* ── LED bargraph ── */
+.jc-bar-track {
+  position: relative;
+  height: 11px;
+  background: #0A0C0E;
+  border: 1px solid #05070A;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.jc-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
-  border-radius: var(--radius-sm);
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.35);
-  transition: width 0.3s ease;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lit) 82%, white), var(--lit));
+  box-shadow: 0 0 8px var(--lit);
+  transition: width 0.35s ease, background 0.25s;
 }
 
-/* Running but no step numbers yet (model loading, or a host without the relay node) —
-   a soft shimmer sweeping the track instead of a stuck-empty bar. */
-.job-card-progress-fill--indeterminate {
-  width: 100% !important;
+/* Notches in the well colour cut the fill into LED cells. */
+.jc-bar-cells {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(90deg, transparent calc(100% - 2px), #0A0C0E calc(100% - 2px));
+  background-size: calc(100% / var(--cells, 28)) 100%;
+  background-repeat: repeat-x;
+}
+
+/* Running with no step numbers: a slow sweep, so the bar reads as "working, count unknown"
+   rather than "stuck at zero". */
+.job-card--stepless .jc-bar-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(34, 211, 238, 0.12) 30%,
-    rgba(34, 211, 238, 0.45) 50%,
-    rgba(34, 211, 238, 0.12) 70%,
+    color-mix(in srgb, var(--lit) 12%, transparent) 30%,
+    color-mix(in srgb, var(--lit) 45%, transparent) 50%,
+    color-mix(in srgb, var(--lit) 12%, transparent) 70%,
     transparent 100%
   );
-  background-size: 50% 100%;
+  background-size: 45% 100%;
   background-repeat: no-repeat;
-  box-shadow: none;
-  animation: progress-shimmer 1.8s ease-in-out infinite;
+  animation: bar-sweep 2.1s ease-in-out infinite;
 }
 
-@keyframes progress-shimmer {
-  from { background-position: -100% 0; }
-  to { background-position: 200% 0; }
+@keyframes bar-sweep {
+  from { background-position: -60% 0; }
+  to { background-position: 160% 0; }
 }
 
-.job-card-stats {
+.jc-bar-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.job-card-queue,
-.job-card-system {
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 6px;
+  min-height: 1.15em;
+  padding: 0 2px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-dim);
-  min-height: 1.2em;
+  color: var(--legend-mid);
 }
 
-/* ── Finished states ── */
-.job-card--finished-success { border-color: rgba(0, 212, 170, 0.35); }
-.job-card--finished-success .job-card-progress-fill {
-  background: linear-gradient(90deg, #00b894, #00d4aa);
-  box-shadow: 0 0 10px rgba(0, 212, 170, 0.4);
-}
-.job-card--finished-success .job-card-node {
-  color: var(--finished-success);
-  text-shadow: 0 0 10px rgba(0, 212, 170, 0.35);
-}
-.job-card--finished-error { border-color: rgba(255, 71, 87, 0.35); }
-.job-card--finished-error .job-card-progress-fill {
-  background: linear-gradient(90deg, #d63447, #ff4757);
-  box-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
-}
-.job-card--finished-error .job-card-node {
-  color: var(--finished-error);
-  text-shadow: 0 0 10px rgba(255, 71, 87, 0.35);
+.jc-pct { color: var(--lit); }
+
+/* ── Narrow module: instruments stack instead of sitting side by side ── */
+@container (max-width: 430px) {
+  .jc-body {
+    flex-direction: column;
+  }
+
+  .jc-well--meter {
+    flex: 0 0 auto;
+    align-items: center;
+  }
+
+  .jc-well--meter .meter {
+    max-width: 232px;
+  }
 }
 
 /* ── Settings panel ── */
 .settings-panel {
   margin: var(--gap) var(--gap) 0 var(--gap);
-  padding: 12px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-card);
+  padding: 11px 14px;
+  background: linear-gradient(180deg, var(--face-hi) 0%, var(--face) 20%, #22262A 100%);
+  border: 1px solid #07090A;
   border-radius: var(--radius);
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 3px 10px rgba(0, 0, 0, 0.5);
 }
 
 .settings-title {
+  font-family: var(--font-legend);
   font-weight: 600;
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-secondary);
+  letter-spacing: 0.24em;
+  color: var(--legend-mid);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07);
   margin-bottom: 10px;
 }
 
@@ -272,20 +842,28 @@ body {
   align-items: center;
   gap: 10px;
   padding: 5px 0;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid #0B0D0F;
+  box-shadow: 0 1px 0 var(--bevel-hi);
 }
 
 .settings-host-row:last-child {
   border-bottom: none;
+  box-shadow: none;
 }
 
 .settings-host-name {
+  font-family: var(--font-legend);
   font-weight: 600;
-  min-width: 100px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  min-width: 110px;
 }
 
 .settings-host-url {
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--legend-mid);
   flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -294,26 +872,34 @@ body {
 
 .settings-remove-btn,
 .settings-add-btn {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-card);
+  background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
+  border: 1px solid #0A0C0E;
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 3px 12px;
+  color: var(--legend-mid);
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  padding: 5px 12px;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition: color var(--transition-normal);
 }
 
-.settings-remove-btn:hover {
-  color: var(--status-offline);
-  border-color: rgba(255, 71, 87, 0.4);
-  box-shadow: 0 0 10px rgba(255, 71, 87, 0.15);
+.settings-remove-btn:hover { color: var(--lamp-fault); }
+.settings-add-btn:hover { color: var(--lamp-run); }
+
+.settings-remove-btn:active,
+.settings-add-btn:active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6) inset;
 }
 
-.settings-add-btn:hover {
-  color: var(--accent);
-  border-color: rgba(34, 211, 238, 0.4);
-  box-shadow: 0 0 10px var(--accent-glow);
+.settings-remove-btn:focus-visible,
+.settings-add-btn:focus-visible,
+.settings-input:focus-visible {
+  outline: 2px solid var(--lamp-run);
+  outline-offset: 2px;
 }
 
 .settings-add-form {
@@ -325,24 +911,34 @@ body {
 }
 
 .settings-input {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--border-card);
+  background: #0A0C0E;
+  border: 1px solid #05070A;
   border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  color: var(--legend);
+  font-family: var(--font-mono);
   font-size: 12px;
   padding: 6px 9px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.7);
 }
 
-.settings-input:focus {
-  outline: none;
-  border-color: rgba(34, 211, 238, 0.4);
-  box-shadow: 0 0 10px var(--accent-glow);
-}
+.settings-input:focus { outline: none; }
 
 .settings-error {
   flex-basis: 100%;
-  color: var(--status-offline);
+  color: var(--lamp-fault);
+  font-family: var(--font-mono);
   font-size: 11px;
   min-height: 1.2em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-card--running .jc-jewel,
+  .job-card--stepless .jc-bar-track::after {
+    animation: none;
+  }
+
+  .jc-bar-fill,
+  .lcd-seg {
+    transition: none;
+  }
 }

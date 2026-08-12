@@ -121,6 +121,15 @@ class ComfyUIClient {
         this.currentJob = { promptId: runningId, startedAtMs: Date.now() };
         this._progressHistory = [];
       }
+      // Identity of the job, read off the same graph. METADATA ONLY — model filename and latent
+      // dimensions. Prompt text is never read, here or anywhere else (Bryan's standing rule).
+      if (graph && typeof graph === 'object') {
+        const latent = describeLatent(graph);
+        this.currentJob.model = describeModel(graph);
+        this.currentJob.size = latent.size;
+        this.currentJob.frames = latent.frames;
+        this.currentJob.batch = latent.batch;
+      }
       return null;
     }
     // Nothing running. If we were showing a live job, it just stopped — resolve via history.
@@ -333,6 +342,10 @@ class ComfyUIClient {
             promptId: job.promptId ?? null,
             node: job.node ?? null,
             nodeName: this._nodeName(job.node),
+            model: job.model ?? null,
+            size: job.size ?? null,
+            frames: job.frames ?? null,
+            batch: job.batch ?? null,
             step: job.step ?? null,
             maxSteps: job.maxSteps ?? null,
             stepsPerSec: job.stepsPerSec ?? null,
@@ -349,4 +362,67 @@ class ComfyUIClient {
   }
 }
 
-module.exports = { ComfyUIClient };
+// ---- Job identity, read from the running graph (metadata only) ----
+
+// Loader class_types worth naming a job after, most specific first: the diffusion model is what
+// the user thinks of as "the model", so a UNET/checkpoint loader beats a VAE or CLIP loader.
+// Matching is on the input key, not the class name, because the ecosystem invents loader nodes
+// faster than anyone can enumerate them (UnetLoaderGGUF, NunchakuFluxDiTLoader, ...).
+const MODEL_KEYS = ['unet_name', 'ckpt_name', 'model_name', 'model_path', 'diffusion_model'];
+const MODEL_FILE_RE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin)$/i;
+
+/**
+ * Best-effort model name for a running prompt graph. Returns null when nothing matches — an
+ * unknown graph shows no model rather than a guessed one.
+ */
+function describeModel(graph) {
+  const found = new Map(); // key -> first value seen, in MODEL_KEYS priority order
+  for (const node of Object.values(graph)) {
+    const inputs = node && typeof node === 'object' ? node.inputs : null;
+    if (!inputs || typeof inputs !== 'object') continue;
+    for (const key of MODEL_KEYS) {
+      const v = inputs[key];
+      // A wired input is ["nodeId", slot] — only a literal filename is a model name.
+      if (typeof v === 'string' && MODEL_FILE_RE.test(v) && !found.has(key)) found.set(key, v);
+    }
+  }
+  for (const key of MODEL_KEYS) {
+    if (found.has(key)) return trimModelName(found.get(key));
+  }
+  return null;
+}
+
+/** "SDXL\juggernautXL_v9.safetensors" -> "juggernautXL_v9". Path and extension are noise here. */
+function trimModelName(raw) {
+  const base = String(raw).split(/[\\/]/).pop() ?? '';
+  return base.replace(MODEL_FILE_RE, '') || null;
+}
+
+/**
+ * The job's latent node: dimensions and, for video, the frame count. Both are returned raw and
+ * unlabelled — the card gives each its own silkscreen label, so neither carries a unit suffix
+ * ("121f") that a label would say better.
+ * Only width/height on a node whose class_type mentions "latent" count: an ImageScale node has
+ * width/height too and is not the job's output size.
+ */
+function describeLatent(graph) {
+  for (const node of Object.values(graph)) {
+    const inputs = node && typeof node === 'object' ? node.inputs : null;
+    if (!inputs) continue;
+    const w = inputs.width;
+    const h = inputs.height;
+    if (!Number.isFinite(w) || !Number.isFinite(h)) continue;
+    if (!/latent/i.test(String(node.class_type ?? ''))) continue;
+    return {
+      size: `${w}x${h}`,
+      // length is 1 on image latents — a "1 frame" row is noise, so only a real video counts.
+      frames: Number.isFinite(inputs.length) && inputs.length > 1 ? inputs.length : null,
+      // Batch size is shown for image jobs in the slot a video job uses for frames. Unlike
+      // frames, a batch of 1 is worth printing: "how many images is this" is a real answer.
+      batch: Number.isFinite(inputs.batch_size) ? inputs.batch_size : null,
+    };
+  }
+  return { size: null, frames: null, batch: null };
+}
+
+module.exports = { ComfyUIClient, describeModel, describeLatent };

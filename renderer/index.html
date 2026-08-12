@@ -2,18 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; font-src 'self';" />
   <title>comfyuiWATCHER</title>
   <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
 </head>
-<body>
+<body class="skin-rack">
   <div id="app">
     <div id="topbar">
       <span id="topbar-title">comfyuiWATCHER</span>
-      <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      <div id="topbar-controls">
+        <select id="skin-select" title="Skin">
+          <option value="rack">1U Rack</option>
+          <option value="glass">Obsidian Glass</option>
+        </select>
+        <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      </div>
     </div>
     <div id="cards"></div>
   </div>
+  <script src="widgets/lcd.js"></script>
   <script src="widgets/job-card.js"></script>
   <script src="widgets/settings-panel.js"></script>
   <script src="renderer.js"></script>

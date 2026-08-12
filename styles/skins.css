@@ -1,0 +1,196 @@
+/* comfyuiWATCHER skins.
+   Same pattern as guiTOP: a `skin-*` class on <body>, persisted in localStorage, switched from
+   a <select> in the top bar. main.css owns STRUCTURE and the default "1U" rack look; this file
+   holds the alternates as token + surface overrides.
+
+   Both skins share one DOM and one behaviour set. A skin may repaint a surface, change a shape,
+   or hide an ornament — it must never hide a value, change what a number means, or break the
+   honesty rules (N/A for unknown steps, resting needle for no rate, hidden rows for unknown
+   job identity). If a skin needs different markup, it needs a widget module of its own, the way
+   guiTOP carries GpuCardBars and GpuCardCorvette — do not fake it with `content:` or `display`
+   tricks on values. */
+
+/* ══ Obsidian Glass ══════════════════════════════════════════════════════════
+   The look this app shipped as 0.0.2, kept as a skin: near-black blue field, translucent
+   gradient cards, cyan glow, no bolts, no faceplate. The instruments stay — the meter is what
+   the app IS now — but they are rendered as backlit glass rather than printed metal. */
+
+body.skin-glass {
+  --chassis:    #060A12;
+  --face:       rgba(255, 255, 255, 0.045);
+  --face-hi:    rgba(255, 255, 255, 0.075);
+  --face-lo:    rgba(255, 255, 255, 0.02);
+  --well:       rgba(0, 0, 0, 0.42);
+
+  --legend:     rgba(255, 255, 255, 0.92);
+  --legend-mid: rgba(255, 255, 255, 0.55);
+  --legend-dim: rgba(255, 255, 255, 0.30);
+
+  /* The dial face is dark glass here, not ivory — so the meter's own ink has to invert with it. */
+  --meter-face: #0B1017;
+  --meter-ink:  rgba(255, 255, 255, 0.72);
+
+  --lamp-run:   #22d3ee;
+  --lamp-ok:    #00D4AA;
+  --lamp-fault: #FF4757;
+  --lamp-idle:  #64748b;
+  --lamp-wait:  #FFC857;
+
+  --bevel-hi: rgba(255, 255, 255, 0.06);
+  --bevel-lo: rgba(0, 0, 0, 0.3);
+
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -10%, rgba(34, 211, 238, 0.07), transparent 60%),
+    var(--chassis);
+}
+
+body.skin-glass #topbar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+body.skin-glass #topbar-title {
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.3);
+}
+
+body.skin-glass #topbar-title::before {
+  background: var(--lamp-run);
+  box-shadow: 0 0 8px var(--lamp-run), 0 0 16px rgba(34, 211, 238, 0.5);
+}
+
+body.skin-glass .job-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+body.skin-glass .job-card:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 20px rgba(34, 211, 238, 0.08);
+}
+
+/* No faceplate, no screws — glass panels are not bolted to anything. */
+body.skin-glass .jc-bolt { display: none; }
+
+body.skin-glass .jc-head {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+/* Engraving is a metal effect; on glass the nameplate is simply lit text. */
+body.skin-glass .jc-name {
+  color: var(--legend);
+  text-shadow: none;
+}
+
+body.skin-glass .jc-status {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+body.skin-glass .jc-status--online { color: var(--lamp-ok); text-shadow: 0 0 6px currentColor; }
+body.skin-glass .jc-status--offline { color: var(--lamp-fault); text-shadow: 0 0 6px currentColor; }
+body.skin-glass .jc-status--connecting { color: var(--lamp-wait); text-shadow: 0 0 6px currentColor; }
+
+body.skin-glass .jc-well {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+/* Backlit dial: dark glass face, cyan graduations, glowing pointer. */
+body.skin-glass .meter-face {
+  fill: var(--meter-face);
+  stroke: rgba(255, 255, 255, 0.08);
+}
+
+body.skin-glass .meter-tick { stroke: rgba(255, 255, 255, 0.22); }
+body.skin-glass .meter-tick--major,
+body.skin-glass .meter-tick--centre { stroke: rgba(255, 255, 255, 0.6); }
+body.skin-glass .meter-label { fill: rgba(255, 255, 255, 0.62); }
+body.skin-glass .meter-unit { fill: rgba(255, 255, 255, 0.28); }
+
+body.skin-glass .meter--reading-slow .meter-unit--slow,
+body.skin-glass .meter--reading-fast .meter-unit--fast {
+  fill: var(--lamp-run);
+}
+
+body.skin-glass .meter-needle {
+  stroke: var(--lamp-run);
+  filter: drop-shadow(0 0 4px var(--lamp-run));
+}
+
+body.skin-glass .meter-hub {
+  fill: #0E1620;
+  stroke: rgba(34, 211, 238, 0.5);
+}
+
+body.skin-glass .meter-sheen-hi { stop-color: rgba(255, 255, 255, 0.07); }
+
+body.skin-glass .meter--nosignal .meter-face { fill: rgba(0, 0, 0, 0.5); }
+body.skin-glass .meter--nosignal .meter-tick,
+body.skin-glass .meter--nosignal .meter-tick--major,
+body.skin-glass .meter--nosignal .meter-tick--centre { stroke: rgba(255, 255, 255, 0.12); }
+body.skin-glass .meter--nosignal .meter-label { fill: rgba(255, 255, 255, 0.22); }
+body.skin-glass .meter--nosignal .meter-nosignal { fill: rgba(255, 255, 255, 0.3); }
+body.skin-glass .meter--nosignal .meter-needle {
+  stroke: rgba(255, 255, 255, 0.2);
+  filter: none;
+}
+body.skin-glass .meter--nosignal .meter-hub { fill: rgba(255, 255, 255, 0.12); stroke: none; }
+
+body.skin-glass .jc-node {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 2px solid var(--lit);
+  border-radius: var(--radius-sm);
+}
+
+/* A blanking panel has no node strip to frame — main.css strips it bare, and the glass border
+   above would otherwise put a lit bracket next to the word IDLE. */
+body.skin-glass .job-card--blank .jc-node {
+  background: none;
+  border: none;
+}
+
+body.skin-glass .jc-well--live .jc-well-legend { text-shadow: 0 0 6px currentColor; }
+
+body.skin-glass .jc-legend-value,
+body.skin-glass .jc-ident-value { color: var(--lit); text-shadow: 0 0 6px currentColor; }
+
+body.skin-glass .jc-legend-value--empty { color: var(--legend-dim); text-shadow: none; }
+
+body.skin-glass .jc-bar-track {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+
+body.skin-glass .jc-bar-cells {
+  background-image: linear-gradient(90deg, transparent calc(100% - 2px), #060A12 calc(100% - 2px));
+}
+
+body.skin-glass .settings-panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+body.skin-glass .settings-input {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: none;
+}
+
+body.skin-glass .settings-remove-btn,
+body.skin-glass .settings-add-btn,
+body.skin-glass #settings-btn,
+body.skin-glass #skin-select {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: none;
+}
