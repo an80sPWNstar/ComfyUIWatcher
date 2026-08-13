@@ -160,3 +160,20 @@ Append-only session log. Newest entry wins; older entries are history, not instr
 - Training can run headless with no UI server; the collector needs the UI up. Bryan says that will
   be fixed on his side, so no DB-reading fallback was built.
 - All tests pass (30+ assertions). App left running. Still uncommitted, still 0.0.3.
+
+## 2026-08-13 03:20 -- shipped v0.0.4
+
+- Bryan approved the bigger dial ("keep it for now so I can use it and form an opinion") -- the
+  empty lower third of the meter face is NOT settled; he may want the face cropped later.
+- Version 0.0.4. Built + verified + released:
+  - Windows NSIS `dist/comfyuiWATCHER Setup 0.0.4.exe` -- asar checked for src/collectors/*
+    (aitoolkit-client.js present, renderer/mock-*.html excluded via a new files rule), and the
+    packaged exe was LAUNCHED and confirmed running, not just built.
+  - Linux built in WSL at ~/cw-build (rsync, then `npx electron-builder --linux`), AppImage + deb
+    copied back into dist/.
+- Commit 9dd1b65 pushed to main. Release v0.0.4 published with all three installers attached:
+  https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.4
+- Still unverified live: queued / finished / stopped transitions on a training host. Everything
+  else was watched against the real H3 run.
+- Known and deliberately not done: `comfyui-client.js` `_poll()` still has the unbounded-fetch
+  pattern that was fixed in the ai-toolkit collector.
