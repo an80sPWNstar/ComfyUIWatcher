@@ -1,9 +1,16 @@
 # comfyuiWATCHER
 
 ## What This Is
-A Windows desktop widget that connects to any number of ComfyUI instances (local or remote — a
-ComfyUI launched with `--listen 0.0.0.0` is just a network address, no SSH needed) and shows live
-per-host job state: current node, step X/Y, speed (it/s or s/it), elapsed time, and ETA.
+A Windows desktop widget that watches a rack of machines doing long-running GPU work and shows
+live per-host job state: what it is working on, step X/Y, speed, elapsed time, and ETA. Two kinds
+of host are supported, in one window:
+- **`comfyui`** — a ComfyUI instance (local or remote; one launched with `--listen 0.0.0.0` is
+  just a network address, no SSH needed).
+- **`aitoolkit`** — an [ai-toolkit](https://github.com/ostris/ai-toolkit) LoRA trainer, watched
+  through its own UI server's REST API.
+
+The name is now narrower than the app. Kept deliberately as of 2026-08-13 — renaming means a new
+repo name, app id and release line, and Bryan chose to keep the existing one.
 
 Scaffolded 2026-08-11, modeled directly on [[guiTOP]]'s architecture (which itself evolved from
 [[tempsLCD-web]]'s Electron widget pattern): Electron main owns one long-lived collector per host,
@@ -38,9 +45,11 @@ comfyuiWATCHER/
 ├── preload.js                       # contextBridge: window.comfyuiWatcher.*
 ├── src/
 │   ├── collectors/
+│   │   ├── index.js                 # Collector registry: host.kind -> collector class
 │   │   ├── comfyui-client.js        # One WS connection per host, reconnect w/ backoff,
 │   │   │                            # derives stepsPerSec/etaSec from a rolling progress window
-│   │   └── service.js               # Owns one ComfyUIClient per configured host
+│   │   ├── aitoolkit-client.js      # REST-only poller for an ai-toolkit UI server (no WS)
+│   │   └── service.js               # Owns one collector per configured host
 │   └── config/
 │       └── hosts.js                 # Host list, persisted to userData/hosts.json
 ├── comfyui-relay/
@@ -63,6 +72,69 @@ comfyuiWATCHER/
 ```
 
 ## Architecture
+
+### Collectors and the snapshot contract (added 2026-08-13)
+`src/collectors/index.js` maps `host.kind` to a collector class. Every collector honours the same
+contract and **nothing above it knows which kind a host is**:
+
+```
+new Collector(host, onUpdate); .start(); .stop()
+onUpdate(hostName, {host, status, lastError, queueRemaining, system, currentJob})
+currentJob: null | {step, maxSteps, stepsPerSec, etaSec, elapsedSec, finished, node, nodeName,
+                    model, size, ...kind extras}
+```
+
+The kind-specific extras are the ONLY difference the card sees: `frames`/`batch` for generation,
+`rank`/`loss` for training. `stepsPerSec` is always **it/s**, even for a trainer that is only ever
+read in s/it — the card's meter and `fmtRate()` both do the reciprocal, and having two units in
+the contract would mean every consumer needs to ask which one it got.
+
+Adding another trainer (Kohya, Musubi, OneTrainer) = one new file + one line in `index.js`. Note
+that the two already on this machine are harder targets than ai-toolkit: Musubi's SECourses GUI
+is Gradio with no job API, so it would need log tailing.
+
+### AI-Toolkit collector (`aitoolkit-client.js`)
+Pure REST, no WebSocket — ai-toolkit keeps every job's live step count in its own SQLite row and
+its Next.js UI (default port **8675**) serves it. Endpoints: `/api/jobs?only_active=true&
+job_type=train` to discover (**server-cached 5s**, too stale to measure a rate from),
+`/api/jobs?id=<id>` uncached for the tracked job, `/api/jobs/<id>/loss?since_step=N` for the loss
+tail. Auth only when that UI was started with `AI_TOOLKIT_AUTH` set — then the host entry needs a
+`token` and every request sends `Authorization: Bearer`.
+
+Four things that were only discoverable from Bryan's live DB (`D:\ai-toolkit\aitk_db.db`):
+1. **`total_steps` lies.** A running job read `step 4204 / total_steps 2500` while its own
+   `job_config` said 5000. Steps come from `job_config.config.process[0].train.steps`; the column
+   is the fallback only.
+2. **Most rows are caption jobs** (11 of 17), 18–187 steps each. Always filter `job_type=train`.
+3. **The rate window is 180s, not 15s.** His slowest recorded run is 30.07 s/it, so ComfyUI's 15s
+   window would usually hold zero step changes and report "no rate" on a healthy run. Only a
+   *changed* step is a sample — polling at 1s would otherwise fill the window with duplicates.
+   **And the estimate is a MEDIAN of per-step intervals, not (last - first) / elapsed.** Measured
+   live 2026-08-13 on a restarting H3 run: it sat on step 5250 for 131s loading its model, then
+   stepped every ~2s, and first-to-last reported **45.07 s/it with a 9h21m ETA on a job 25 minutes
+   from done**. This is not an edge case — ai-toolkit pauses to write a checkpoint every
+   `save_every` steps (250 on his runs) and to render samples, so a long gap lands in the window
+   routinely. Three samples minimum, because one interval cannot outvote a stall.
+   **Then AVERAGE the surviving intervals — do not report the median itself.** A 1s poll quantises
+   every interval to whole seconds, so a true 2.7 s/it run yields 2s and 3s intervals and a median
+   snaps to 3.02 (measured live against a trainer reporting 2.55–2.85). The rule is: cut anything
+   over 3x the median as a pause, then `steps / seconds` over what is left.
+4. **ONLY the uncached `?id=` read may feed the rate window.** `_applyJob` runs twice per poll —
+   the 5s-cached list row, then the fresh one. They disagree by a step or two and land
+   milliseconds apart, so sampling both filled the window with "+2 steps in 5ms" pairs and the
+   estimate landed on them: **200 steps/sec, 0.005 s/it, a 3-second ETA on a job half an hour from
+   done** (found 2026-08-13 only because Bryan said the card looked wrong). The cached row also
+   must never drag `job.step` backwards. **A stub cannot catch this class of bug** — it serves
+   both endpoints from one number, so the skew does not exist. The stub verification was real but
+   it was not sufficient, and the same caveat applies to any future collector: measure it against
+   the actual server before believing a rate.
+4. **Elapsed is often unknowable.** ai-toolkit stores no training start time (`created_at` is when
+   the job was *made*, and a queued job can sit for hours), so a run already in progress when the
+   widget launches emits `elapsedSec: null` → the card prints `--`. Time-since-we-noticed would be
+   a fabricated number. Only a run watched from step 0 gets a real elapsed.
+
+`stopped` is mapped to neither success nor error — the user pressed stop, and painting the module
+red for that is a lie. The card just clears.
 
 ### Data Flow
 1. `main.js` loads the host list (`src/config/hosts.js`, defaults to New Main `:8188` and
@@ -130,11 +202,28 @@ grain), four corner screws, engraved nameplate, jewel lamp, two recessed instrum
 bargraph. Typography is **Rajdhani** uppercase+tracked as the silkscreen legend face and Share
 Tech Mono for values; **Orbitron is gone** (it was the generic sci-fi default and made every card
 read as a spaceship HUD). The old arc gauge is gone too.
-- **The signature is the moving-coil rate meter** (`createRateMeter` in `widgets/lcd.js`): ivory
-  face, log scale 0.01→100 it/s across 96°. **Log, not linear** — this widget watches both a
-  5 it/s SDXL image and a 0.07 it/s H3 video sampler, and a linear face pins the needle for
-  whichever it wasn't scaled for. **No red zone**: on real gear that means overload, and a slow
-  sampler is not a fault.
+- **The signature is the moving-coil rate meter** (`createRateMeter(face)` in `widgets/lcd.js`):
+  ivory face, log scale across 96°. **Log, not linear** — this widget watches both a 5 it/s SDXL
+  image and a 0.07 it/s H3 video sampler, and a linear face pins the needle for whichever it
+  wasn't scaled for. **No red zone**: on real gear that means overload, and a slow sampler is not
+  a fault. There are two faces, chosen by card kind:
+  - `sampling` — 0.01→100 it/s, split at 1:1 (below).
+  - `training` — **60…1 s/it, one unit, no split** (added 2026-08-13). Scaled from Bryan's six
+    recorded ai-toolkit runs: 2.17, 3.66, 4.41, 5.09, 6.08 and 30.07 s/it. **Nothing he has ever
+    trained ran faster than 1 it/s**, so on the sampling face all six pile up within a few degrees
+    of centre while half the arc covers speeds no trainer reaches. Picked from a live side-by-side
+    mockup (`renderer/mock-train-dial.html`, "face B") against two rejected alternatives: the
+    unchanged sampling face, and a loss face (needle on loss, .001–1, with a trace) — the loss
+    face's trace carried more than its needle did, and it made training cards taller than
+    generation ones.
+  - **Both faces are graduated in it/s underneath, whatever they print.** That is what keeps
+    needle direction meaning one thing in a mixed rack: further right is always faster. The
+    training face's labels descend 60→1 for exactly this reason. Drawing it the intuitive way
+    (1 left, 60 right) was tried and rejected — needle-right would then mean "fast" on a
+    generation module and "slow" on the training module beside it.
+  - A single-unit face keeps its unit word in the same **bottom-left** slot the two-unit face
+    uses. Moving it to centre to clear the needle pivot put it straight through the top
+    graduations instead (tried, unreadable).
 - **The face is split at the 1:1 mark: left half graduated in s/it, right half in it/s** (settled
   2026-08-12 with Bryan after three rejected versions, see below). One log scale, whose left half
   is labelled with the reciprocal — which is legitimate, s/it IS 1/(it/s) — so every label on the
@@ -194,6 +283,14 @@ read as a spaceship HUD). The old arc gauge is gone too.
 - **Responsive on `container-type: inline-size`, not viewport width** — at 700px the grid runs two
   columns, so a card can be narrow inside a wide window. Below 430px of *card* width the two wells
   stack.
+- `#cards` uses **`repeat(auto-fill, ...)`, never `auto-fit`** (fixed 2026-08-13). `auto-fit`
+  collapses empty tracks, so a rack showing a single card — every other host idle, or the kind
+  filter on — stretched that one card to 863px at the default 900x640 window and left its
+  instruments floating in empty faceplate. That was the "too much dead space to the right", not
+  the dial size.
+- The meter well is **`flex: 0 0 clamp(210px, 38%, 340px)`**, not a fixed 196px, and the stacked
+  layout no longer caps the dial at 232px. The dial is the instrument the card exists for; it
+  scales with the card. Measured after: 371x171 at a 426px card, up from 176x81.
 - `#cards` needs **`grid-auto-rows: max-content`**. Cards set `overflow: hidden`, which zeroes
   their automatic minimum size, so `auto` rows in a definite-height scroll container squash every
   card to an equal share instead of overflowing into the scrollbar (measured: 9 cards at 620x1000
@@ -266,11 +363,44 @@ Same mechanism as [[project-guitop]]: a `skin-*` class on `<body>`, persisted to
   deliberately strips, putting a lit bracket beside the word IDLE. When overriding a shared
   element, check it in the blank state too.
 
+### Card kinds (added 2026-08-13)
+`createCard(hostName, kind)` builds the card for its kind; `KINDS` in `job-card.js` holds the
+whole difference — meter face, well legend ("Sampling Rate" vs "Training Rate"), the three
+identity labels, and whether a LOSS legend exists. A card carries `data-kind`, and `renderer.js`
+**rebuilds** a card whose host changed kind rather than relabelling it.
+- Training identity plate: **BASE MODEL / RESOLUTION / RANK**, from `job_config` (metadata only —
+  never dataset contents or captions). Rank is fixed for a run, so unlike frames/batch that slot
+  never relabels itself. Resolution prints the whole bucket list (`512/768/1024`), because
+  multi-resolution training is the norm and picking one would misreport the job.
+- **Loss is a legend value, not an instrument.** It moves every step, but its absolute value is
+  not comparable between models — it is something to read, not to gauge. `--` until the run writes
+  its first sample; `0.0000` would be a lie.
+- `job.stateText` lets a collector name its own end state ("Trained"), since a finished training
+  run is not "Finished" in the sense a 20-step sampler job is.
+- **`job.phase` → `.jc-phase`, top right of the faceplate** (added 2026-08-13 at Bryan's request).
+  ai-toolkit narrates itself in its `info` column — observed live: `Model Loaded`, `Loading
+  dataset`, `Training`. A run spends MINUTES loading a model and caching a dataset before its
+  first step, and without this the card reads "running, no numbers" throughout, which is
+  indistinguishable from a stall. Shown verbatim, lit in `--lit`, hidden when absent — never
+  invented from `status`, and dropped entirely once the run finishes (the last thing it was doing
+  is not what it is doing). ComfyUI has no equivalent field, so those cards simply never show one.
+
+### Kind filter
+Top bar `Show` → All / Generation / Training, persisted to
+`localStorage['comfyuiwatcher-kind-filter']`, applied as a class on `#cards` that hides cards by
+`data-kind`. **Filter, not tabs** — a watcher's question is "what is this machine doing", and both
+kinds answer it the same way; tabs would hide half the rack behind a click. Hiding is `display:
+none`, never a rebuild, so a filtered-out host keeps collecting and is instantly correct when it
+comes back.
+
 ## Host Config
-`src/config/hosts.js` persists `{name, url}[]` to `userData/hosts.json`, defaulting to
-`[{name: "New Main", url: "http://127.0.0.1:8188"}, {name: "Secondary", url: "http://127.0.0.1:8189"}]`
-— see [[comfyui-hardware-config]] for what's actually running on those ports. `validate()` drops
-anything that isn't a well-formed `http(s)` URL rather than crashing on a malformed hosts file.
+`src/config/hosts.js` persists `{name, url, kind, token?}[]` to `userData/hosts.json`, defaulting
+to New Main `:8188` + Secondary `:8189` (both `comfyui`, see [[comfyui-hardware-config]]) and
+AI-Toolkit `:8675` (`aitoolkit`). `validate()` drops anything that isn't a well-formed `http(s)`
+URL rather than crashing on a malformed hosts file; an **unrecognised or missing `kind` falls back
+to `comfyui`** rather than dropping the host, so a hosts.json written by an earlier version keeps
+working and a typo never makes a server silently vanish from the rack. `token` is only read by
+aitoolkit hosts and has no UI — it lives in hosts.json, because `AI_TOOLKIT_AUTH` is rarely set.
 
 ## Commands
 | Command | What |
@@ -330,10 +460,31 @@ running-with-steps / running-without-steps / finished / failed / idle / offline 
 all states render, the settings panel still works, 19 test assertions pass. Version still 0.0.2;
 **no installer rebuilt for this change yet**.
 
+## Status (2026-08-13, trainer support)
+AI-Toolkit hosts work end to end. Verified by launching the real app against an API stub serving
+the **real rows out of `aitk_db.db`** (both ComfyUI instances and the ai-toolkit UI were down):
+card comes online, shows `Training · w1f3y_h3_v1`, MiniMax-H3 / 512-768-1024 / rank 16, 3790 steps
+left, 2.21 s/it measured from step deltas against a recorded 2.17, ETA 2h19m, loss 0.0339, needle
+just right of the `2` mark on the training face. Elapsed correctly reads `--` for a run first seen
+mid-flight. 24 assertions in `test/aitoolkit-client.test.js`.
+
+**Then verified against the live ai-toolkit UI server** once Bryan started it (`w1f3y_h3_v1`,
+MiniMax-H3, rank 16, 6000 steps). That run found three bugs the stub could not:
+1. Rate window poisoned by the 131s model-load stall → median of intervals.
+2. Rate quantised by the 1s poll → trimmed average instead of the median value.
+3. **Both the cached and the fresh row feeding the window → 0.005 s/it.** Bryan spotted this from
+   the card, not from any test.
+After the fixes the collector tracks the trainer's own figure (2.48–2.68 s/it against ai-toolkit's
+reported 2.55–2.85) with a consistent ETA. Still unseen live: queued, finished and `stopped`
+transitions. Version still 0.0.3, no installer rebuilt.
+
 **Not built yet / next:**
 1. Window state persistence, tray/minimize (guiTOP playbook).
 2. `hosts.json` lives in `userData` (`%APPDATA%/comfyuiwatcher`); no UI for reordering hosts.
 3. Installer/AppImage rebuild + release once Bryan signs off on the new look.
+4. Watch the training card against the real ai-toolkit UI server on the next run he starts.
+5. Other trainers (Musubi/EZ-Musubi are on this machine) — needs a log-tailing collector, since
+   Gradio GUIs have no job API.
 
 <!-- BEGIN LOCAL-LLM-DELEGATION v1 -- canonical block, identical in every project. Source of truth: ~/.claude/CLAUDE.md. Re-sync by replacing between these two markers. -->
 ## Local LLM Delegation

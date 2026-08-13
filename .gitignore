@@ -1,3 +1,7 @@
 node_modules/
 dist/
 *.log
+# Verification screenshots taken at the repo root (app-train.png, dial-*.png). The app's own
+# assets live under assets/, so ignoring root PNGs only catches throwaways.
+/*.png
+.playwright-mcp/

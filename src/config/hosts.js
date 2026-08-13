@@ -1,6 +1,12 @@
-// Host list: { name, url } where url is a bare http(s) origin, e.g. "http://127.0.0.1:8188".
-// No SSH needed here (unlike guiTOP) — ComfyUI already listens on the network directly when
-// launched with --listen 0.0.0.0, so a remote host is just a different origin to fetch/connect to.
+// Host list: { name, url, kind, token? } where url is a bare http(s) origin, e.g.
+// "http://127.0.0.1:8188". No SSH needed here (unlike guiTOP) — both ComfyUI and ai-toolkit's UI
+// already listen on the network directly, so a remote host is just a different origin.
+//
+// `kind` selects the collector (see collectors/index.js): "comfyui" watches a generation server,
+// "aitoolkit" watches a LoRA trainer. It defaults to "comfyui" so a hosts.json written by an
+// earlier version keeps working untouched.
+// `token` is only used by aitoolkit hosts, and only when that UI was started with
+// AI_TOOLKIT_AUTH set.
 
 const { app } = require('electron');
 const fs = require('fs');
@@ -10,9 +16,13 @@ function configPath() {
   return path.join(app.getPath('userData'), 'hosts.json');
 }
 
+const KINDS = ['comfyui', 'aitoolkit'];
+
 const DEFAULT_HOSTS = [
-  { name: 'New Main', url: 'http://127.0.0.1:8188' },
-  { name: 'Secondary', url: 'http://127.0.0.1:8189' },
+  { name: 'New Main', url: 'http://127.0.0.1:8188', kind: 'comfyui' },
+  { name: 'Secondary', url: 'http://127.0.0.1:8189', kind: 'comfyui' },
+  // ai-toolkit's UI server, default port from its own package.json start script.
+  { name: 'AI-Toolkit', url: 'http://127.0.0.1:8675', kind: 'aitoolkit' },
 ];
 
 function normalizeUrl(url) {
@@ -40,7 +50,12 @@ function validate(hosts) {
       while (taken.has(`${name} (${i})`)) i++;
       name = `${name} (${i})`;
     }
-    out.push({ name, url: normalizeUrl(h.url) });
+    // An unrecognised kind falls back to comfyui rather than dropping the host: a typo in
+    // hosts.json should not silently make a server disappear from the rack.
+    const kind = KINDS.includes(h.kind) ? h.kind : 'comfyui';
+    const entry = { name, url: normalizeUrl(h.url), kind };
+    if (typeof h.token === 'string' && h.token) entry.token = h.token;
+    out.push(entry);
   }
   return out.length ? out : DEFAULT_HOSTS;
 }
@@ -60,4 +75,4 @@ function save(hosts) {
   return validated;
 }
 
-module.exports = { load, save, validate, DEFAULT_HOSTS };
+module.exports = { load, save, validate, DEFAULT_HOSTS, KINDS };

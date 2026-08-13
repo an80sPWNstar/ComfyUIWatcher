@@ -114,3 +114,49 @@ Append-only session log. Newest entry wins; older entries are history, not instr
   /queue poll already fetches -- metadata only, no prompt text. Rows hide when unknown.
   8 new assertions cover them. NOT YET SEEN AGAINST A LIVE JOB (both hosts down at the time) --
   check the model line on the next real run before trusting it.
+
+## 2026-08-13 02:00 -- AI-Toolkit (LoRA trainer) support
+
+- Decision: trainers live in THIS app, not a new project. `host.kind` (`comfyui` | `aitoolkit`)
+  picks a collector via new `src/collectors/index.js`; the snapshot contract is the seam and
+  nothing above the collector knows the kind. Repo/app name kept as-is even though it is now
+  narrower than the app.
+- New: `src/collectors/aitoolkit-client.js` (REST-only poller for ai-toolkit's UI server, default
+  port 8675), kind filter in the top bar (All/Generation/Training, persisted), kind-aware card
+  (training face, BASE MODEL/RESOLUTION/RANK, LOSS legend), settings panel kind picker.
+  24 assertions in `test/aitoolkit-client.test.js`; full suite passes.
+- Dial: training cards get a NEW face -- 60..1 s/it, single unit -- chosen by Bryan from a live
+  mockup (`renderer/mock-train-dial.html`). Scaled from his six recorded runs (2.17..30.07 s/it);
+  nothing he has trained ever exceeded 1 it/s. Both faces stay it/s underneath so needle-right
+  always means faster. Rejected: unchanged sampling face, loss-on-the-needle face.
+- VERIFIED against a stub serving REAL rows from `D:\ai-toolkit\aitk_db.db` (both ComfyUI hosts
+  AND the ai-toolkit UI were down all session). NOT yet seen against the live UI server -- that is
+  the next check when Bryan starts a run.
+- `%APPDATA%\comfyuiwatcher\hosts.json` was rewritten to add the AI-Toolkit host and `kind` fields.
+  Previous file saved beside it as `hosts.json.bak-claude`.
+- Local-LLM review of the new collector (.70) found one real defect: `fetch` with no timeout would
+  wedge `_pollInFlight` forever on a half-open connection. Fixed with `AbortSignal.timeout(8000)`.
+  NOTE: `comfyui-client.js` `_poll()` has the SAME unbounded-fetch pattern -- left alone as out of
+  scope, worth fixing.
+- Not done: version bump, installers, release. Still 0.0.3.
+
+## 2026-08-13 02:55 -- live verification against the real ai-toolkit server
+
+- Bryan started the UI (8675) and a real H3 run. Three rate bugs surfaced that the stub could not:
+  1. 131s model-load stall poisoned the window -> median of per-step intervals.
+  2. 1s poll quantises intervals to whole seconds -> trim >3x median, then AVERAGE the rest
+     (median alone read 3.02 s/it on a 2.55-2.85 job).
+  3. WORST: `_applyJob` ran on BOTH the 5s-cached list row and the fresh by-id row, so the window
+     filled with "+2 steps in 5ms" pairs -> 200 steps/sec, 0.005 s/it, 3-second ETA. Only the
+     uncached `?id=` read may sample now; the stale row also cannot rewind `job.step`.
+  Bryan caught #3 by looking at the card ("not sure it's reading the lora job correctly"), not any
+  test. LESSON: a stub serving one number to both endpoints cannot expose cache skew. Measure a
+  new collector against the real server before trusting a rate.
+- Added `job.phase` -> `.jc-phase` top-right of the faceplate, from ai-toolkit's `info` column
+  (observed live: "Model Loaded", "Loading dataset", "Training"). A run is silent for minutes
+  while loading; without it the card is indistinguishable from a stall.
+- Also learned: the python trainer writes `step` straight into the sqlite DB, so `updated_at`
+  (Prisma @updatedAt) can be DAYS stale on a live row. Never use it for freshness.
+- Training can run headless with no UI server; the collector needs the UI up. Bryan says that will
+  be fixed on his side, so no DB-reading fallback was built.
+- All tests pass (30+ assertions). App left running. Still uncommitted, still 0.0.3.

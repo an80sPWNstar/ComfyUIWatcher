@@ -203,7 +203,12 @@ body {
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  /* auto-FILL, not auto-fit. auto-fit collapses empty tracks, so a rack showing ONE card (all
+     other hosts idle, or the kind filter on) stretched that card across the whole window — an
+     863px module at the default 900x640, with its instruments sitting in a sea of faceplate.
+     auto-fill keeps the tracks, so a card is always about as wide as it was designed to be and
+     the empty part of the rack reads as an empty rack. */
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
   /* Cards set overflow:hidden, which zeroes their automatic minimum size — so `auto` rows in a
      definite-height scroll container squash every card to an equal share instead of overflowing
      into the scrollbar. Measured 2026-08-12: 9 cards at 620x1000 rendered 83px tall each,
@@ -212,6 +217,13 @@ body {
   align-content: start;
   gap: var(--gap);
   padding: var(--gap);
+}
+
+/* Kind filter (top bar "Show"). Hiding is display:none rather than a rebuild, so a filtered-out
+   host keeps collecting and its card is instantly correct when it comes back. */
+#cards.filter-comfyui .job-card[data-kind='aitoolkit'],
+#cards.filter-aitoolkit .job-card[data-kind='comfyui'] {
+  display: none;
 }
 
 #cards::-webkit-scrollbar { width: 9px; }
@@ -375,6 +387,28 @@ body {
 
 .jc-queue--active { color: var(--legend-mid); }
 
+/* What the host says it is doing, in its own words ("Loading dataset", "Model Loaded"). Lit in
+   the card colour because it is live information, not a label. It is the only readout on the card
+   during the minutes a training run spends loading before its first step, so it gets to shrink
+   the nameplate rather than be truncated itself — the host name is already on the plate above. */
+.jc-phase {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--lit);
+  opacity: 0.85;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jc-phase:not(.jc-phase--on) { display: none; }
+
+/* The nameplate yields first when both are long. */
+.jc-phase--on ~ .jc-queue { margin-left: 2px; }
+
 /* Status is silkscreened, not a pill — the lamp is what carries the colour. */
 .jc-status {
   color: var(--legend-dim);
@@ -407,8 +441,12 @@ body {
   padding: 9px 10px 7px;
 }
 
+/* The dial grows with the card instead of sitting at a fixed 196px. It is the instrument the
+   whole card is built around — a wide card with a small dial and a band of empty faceplate beside
+   it reads as an afterthought. Clamped at both ends: below ~210px the graduations crowd, above
+   ~340px it starts stealing width the identity plate needs. */
 .jc-well--meter {
-  flex: 0 0 196px;
+  flex: 0 0 clamp(210px, 38%, 340px);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -808,11 +846,14 @@ body {
 
   .jc-well--meter {
     flex: 0 0 auto;
-    align-items: center;
   }
 
+  /* Stacked, the dial gets the FULL width of the well. It used to be capped at 232px and centred,
+     which left a band of dead faceplate either side of the one instrument worth looking at — the
+     first thing Bryan called out when he saw it at the default 900x640 window size, where cards
+     land just under the 430px breakpoint. */
   .jc-well--meter .meter {
-    max-width: 232px;
+    max-width: none;
   }
 }
 
@@ -859,6 +900,22 @@ body {
   text-transform: uppercase;
   min-width: 110px;
 }
+
+/* Kind tag in the hosts list — silkscreen, not a badge: the panel sits inside a rack faceplate. */
+.settings-host-kind {
+  font-family: var(--font-legend);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--legend-dim);
+  border: 1px solid #3A3F45;
+  border-radius: 2px;
+  padding: 1px 5px;
+  flex: 0 0 auto;
+}
+
+.settings-kind { flex: 0 0 auto; }
 
 .settings-host-url {
   font-family: var(--font-mono);

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — training dial options (live)</title>
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+  <style>
+    /* ---- MOCK-ONLY ---- */
+    .jc-kind {
+      font-family: 'Rajdhani', sans-serif; font-size: 10px; font-weight: 600;
+      letter-spacing: .16em; text-transform: uppercase; color: #a89a7a;
+      border: 1px solid #4a4335; border-radius: 2px; padding: 0 5px; line-height: 15px;
+      background: rgba(0,0,0,.18); flex: none;
+    }
+    .mock-note {
+      font-family: 'Rajdhani', sans-serif; font-size: 12.5px; letter-spacing: .08em;
+      text-transform: uppercase; color: #7d838a; padding: 10px 16px 0; line-height: 1.7;
+    }
+    .mock-note b { color: #c8a24a; font-weight: 600; }
+    /* Section heading spans the whole grid so each face gets its own band of the rack. */
+    .mock-head {
+      grid-column: 1 / -1; font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 600;
+      letter-spacing: .18em; text-transform: uppercase; color: #c8a24a;
+      border-bottom: 1px solid #33383e; padding: 14px 2px 5px; margin-bottom: 2px;
+    }
+    .mock-head span { color: #7d838a; font-weight: 500; letter-spacing: .1em; }
+    /* The trace well is a fixed height so adding it can never resize the card. */
+    .mock-trace { display: block; width: 100%; height: 26px; margin-top: 4px; }
+    .mock-trace-line { fill: none; stroke: var(--lit, #c8a24a); stroke-width: 1.2; opacity: .9; }
+    .mock-trace-grid { stroke: #3a3f45; stroke-width: 1; }
+  </style>
+</head>
+<body class="skin-rack">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <div id="topbar-controls">
+        <select id="skin-select" title="Skin">
+          <option value="rack">1U Rack</option>
+          <option value="glass">Obsidian Glass</option>
+        </select>
+        <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      </div>
+    </div>
+    <div class="mock-note">
+      Three of your real ai-toolkit jobs, at their recorded speeds &mdash;
+      <b>H3 2.17 s/it &middot; krea2 6.08 s/it &middot; LoKr 30.07 s/it</b> &mdash; shown on each
+      candidate face. Every job you have trained is slower than 1 it/s.
+      The H3 card throttles 25% for 8s of every 26s.
+    </div>
+    <div id="cards"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script>
+  (function () {
+    const SVG = 'http://www.w3.org/2000/svg';
+    const svgEl = (t, a) => {
+      const e = document.createElementNS(SVG, t);
+      for (const [k, v] of Object.entries(a || {})) e.setAttribute(k, String(v));
+      return e;
+    };
+
+    // ── Generalised moving-coil meter ────────────────────────────────────────
+    // Identical geometry, ballistics and CSS classes to widgets/lcd.js createRateMeter. The only
+    // thing lifted out is the hardcoded scale, so adopting any face below is a scale argument on
+    // the real function, nothing more.
+    const SWEEP = 96;
+    function createMeter(cfg) {
+      const { minLog, maxLog, marks, units, nosignal = 'NO SIGNAL' } = cfg;
+      const wrap = document.createElement('div');
+      wrap.className = 'meter';
+      const svg = svgEl('svg', { viewBox: '0 0 200 92', class: 'meter-svg' });
+      const cx = 100, cy = 96, rTick = 60;
+      const toRad = (a) => ((a - 90) * Math.PI) / 180;
+      const pos = (v) => Math.max(0, Math.min(1, (Math.log10(v) - minLog) / (maxLog - minLog)));
+      const angle = (p) => -SWEEP / 2 + p * SWEEP;
+
+      svg.appendChild(svgEl('rect', { x: 2, y: 2, width: 196, height: 88, rx: 3, class: 'meter-face' }));
+
+      for (const m of marks) {
+        const a = angle(pos(m.v));
+        const len = m.centre ? 13 : m.label ? 9 : 5;
+        svg.appendChild(svgEl('line', {
+          x1: cx + (m.centre ? rTick - 5 : rTick) * Math.cos(toRad(a)),
+          y1: cy + (m.centre ? rTick - 5 : rTick) * Math.sin(toRad(a)),
+          x2: cx + (rTick + len) * Math.cos(toRad(a)),
+          y2: cy + (rTick + len) * Math.sin(toRad(a)),
+          class: `meter-tick${m.label ? ' meter-tick--major' : ''}${m.centre ? ' meter-tick--centre' : ''}`,
+        }));
+        if (m.label) {
+          const rl = rTick + len + 7;
+          const t = svgEl('text', {
+            x: cx + rl * Math.cos(toRad(a)), y: cy + rl * Math.sin(toRad(a)) + 3, class: 'meter-label',
+          });
+          t.textContent = m.label;
+          svg.appendChild(t);
+        }
+      }
+
+      // Unit words. A single-unit face gets one word, in the lit slot, since there is no other
+      // half to point at.
+      const uSlow = svgEl('text', { x: 44, y: 84, class: 'meter-unit meter-unit--slow' });
+      uSlow.textContent = units.slow || '';
+      svg.appendChild(uSlow);
+      if (!units.single) {
+        const uFast = svgEl('text', { x: 156, y: 84, class: 'meter-unit meter-unit--fast' });
+        uFast.textContent = units.fast || '';
+        svg.appendChild(uFast);
+      }
+      // A single unit word stays in the same bottom-left slot the two-unit face uses. Moving it
+      // up to centre put it straight through the top graduations (tried, unreadable), and bottom
+      // centre is the needle pivot.
+
+      const needle = svgEl('line', { x1: cx, y1: cy, x2: cx, y2: cy - (rTick + 3), class: 'meter-needle' });
+      svg.append(needle, svgEl('circle', { cx, cy, r: 6, class: 'meter-hub' }));
+
+      const defs = svgEl('defs', {});
+      const gid = `sheen-mock-${cfg.id}`;
+      const grad = svgEl('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0.7, y2: 1 });
+      grad.append(svgEl('stop', { offset: '0', class: 'meter-sheen-hi' }),
+                  svgEl('stop', { offset: '1', class: 'meter-sheen-lo' }));
+      defs.appendChild(grad);
+      svg.appendChild(defs);
+      svg.appendChild(svgEl('path', { d: 'M3 3 L 78 3 Q 34 34 3 66 Z', class: 'meter-glass', fill: `url(#${gid})` }));
+
+      const ns = svgEl('text', { x: 100, y: 58, class: 'meter-nosignal' });
+      ns.textContent = nosignal;
+      svg.appendChild(ns);
+      wrap.appendChild(svg);
+
+      const st = { angle: -SWEEP / 2, vel: 0, target: -SWEEP / 2, last: 0 };
+      const apply = (d) => needle.setAttribute('transform', `rotate(${d.toFixed(2)} ${cx} ${cy})`);
+      apply(st.angle);
+      let raf = 0;
+      function tick(now) {
+        const dt = Math.min(64, now - (st.last || now)) / 16.667;
+        st.last = now;
+        const err = st.target - st.angle;
+        st.vel += (err * 0.085 - st.vel * 0.42) * dt;
+        st.angle += st.vel * dt;
+        if (Math.abs(err) < 0.02 && Math.abs(st.vel) < 0.02) { st.angle = st.target; st.vel = 0; raf = 0; }
+        else raf = requestAnimationFrame(tick);
+        apply(st.angle);
+      }
+      return {
+        el: wrap,
+        // `v` is in the face's own unit — it/s for the rate faces, s/it for the s/it-only face,
+        // loss for the loss face. `slow` forces which unit word lights.
+        setValue(v, opts) {
+          const live = v != null && Number.isFinite(v) && v > 0;
+          wrap.classList.toggle('meter--nosignal', !live);
+          const slowHalf = opts?.slow ?? (live && v < 1);
+          wrap.classList.toggle('meter--reading-slow', live && slowHalf);
+          wrap.classList.toggle('meter--reading-fast', live && !slowHalf);
+          st.target = live ? angle(pos(v)) : -SWEEP / 2;
+          st.last = 0;
+          if (!raf) raf = requestAnimationFrame(tick);
+        },
+        setRate() {}, // updateCard drives the meter; every variant here is driven explicitly instead
+        destroy() { if (raf) cancelAnimationFrame(raf); },
+      };
+    }
+
+    // ── The faces ────────────────────────────────────────────────────────────
+    // A: what ships today. Four decades of it/s, split at 1:1.
+    const FACE_A = {
+      id: 'a', minLog: -2, maxLog: 2, units: { slow: 's/it', fast: 'it/s' },
+      marks: [
+        { v: 0.01, label: '100' }, { v: 0.02 }, { v: 0.05 },
+        { v: 0.1, label: '10' }, { v: 0.2 }, { v: 0.5 },
+        { v: 1, label: '1', centre: true }, { v: 2 }, { v: 5 },
+        { v: 10, label: '10' }, { v: 20 }, { v: 50 }, { v: 100, label: '100' },
+      ],
+      read: (sPerIt) => ({ v: 1 / sPerIt, slow: sPerIt > 1 }),
+    };
+    // B: s/it only, 60 .. 1 s/it. Built from your six recorded jobs (2.17 .. 30.07): the whole
+    // arc is the band you actually train in, no dead half.
+    //
+    // The scale still runs in it/s underneath, so the needle keeps the SAME sense as every
+    // generation card in the rack — further right is faster. Only the labels are reciprocated,
+    // which is what makes them whole seconds. Drawing it the intuitive way (1 on the left, 60 on
+    // the right) was tried and is wrong: in a mixed rack, needle-right would mean "fast" on one
+    // module and "slow" on the one beside it.
+    const FACE_B = {
+      id: 'b', minLog: -Math.log10(60), maxLog: 0, units: { single: true, slow: 'sec/iter' },
+      marks: [
+        { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30 },
+        { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+        { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+        { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 },
+        { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+        { v: 1, label: '1' },
+      ],
+      read: (sPerIt) => ({ v: 1 / sPerIt, slow: true }),
+    };
+    // C: loss, .001 .. 1. The one quantity that moves every step of a training run.
+    const FACE_C = {
+      id: 'c', minLog: -3, maxLog: 0, units: { single: true, slow: 'loss' }, nosignal: 'NO DATA',
+      marks: [
+        { v: 0.001, label: '.001' }, { v: 0.003 },
+        { v: 0.01, label: '.01' }, { v: 0.03 },
+        { v: 0.1, label: '.1' }, { v: 0.3 },
+        { v: 1, label: '1' },
+      ],
+      read: null, // driven by loss, not rate
+    };
+
+    // ── Your real jobs ───────────────────────────────────────────────────────
+    const JOBS = [
+      { host: 'H3 · rank16', sPerIt: 2.17, model: 'MiniMax-H3', rank: 16, steps: 5000, at: 4204, throttle: true },
+      { host: 'krea2 · rank32', sPerIt: 6.08, model: 'Krea-2-Raw', rank: 32, steps: 3000, at: 1180 },
+      { host: 'LoKr · rank64', sPerIt: 30.07, model: 'Krea-2-Raw', rank: 64, steps: 3000, at: 620 },
+    ];
+
+    const cards = document.getElementById('cards');
+    const built = [];
+
+    function section(title, sub) {
+      const h = document.createElement('div');
+      h.className = 'mock-head';
+      h.innerHTML = `${title} <span>${sub}</span>`;
+      cards.appendChild(h);
+    }
+
+    function addCard(job, face, withTrace) {
+      const card = window.Widgets.createCard(job.host);
+      const tag = document.createElement('span');
+      tag.className = 'jc-kind';
+      tag.textContent = 'Train';
+      card.querySelector('.jc-name').after(tag);
+
+      card._parts.meter.destroy();
+      const m = createMeter({ ...face, id: `${face.id}-${job.host.replace(/\W/g, '')}` });
+      card.querySelector('.jc-well--meter').replaceChild(m.el, card._parts.meter.el);
+      card._parts.meter = m;
+
+      const wellLegend = card.querySelector('.jc-well--meter .jc-well-legend');
+      if (face === FACE_C) wellLegend.textContent = 'Training Loss';
+
+      let trace = null;
+      if (withTrace) {
+        const s = svgEl('svg', { viewBox: '0 0 200 26', class: 'mock-trace', preserveAspectRatio: 'none' });
+        // Fixed gridlines at .1 / .01 / .001 — the trace is drawn on the SAME fixed log scale as
+        // the dial. Autoscaling it to the visible window (the first version) made the curve
+        // rescale on every sample, which is movement that means nothing.
+        for (const gv of [0.1, 0.01]) {
+          const y = 25 - ((Math.log10(gv) + 3) / 3) * 24;
+          s.appendChild(svgEl('line', { x1: 0, y1: y, x2: 200, y2: y, class: 'mock-trace-grid' }));
+        }
+        trace = svgEl('polyline', { class: 'mock-trace-line', points: '' });
+        s.appendChild(trace);
+        card.querySelector('.jc-well--meter').insertBefore(s, wellLegend);
+      }
+
+      const wrap = document.createElement('div');
+      wrap.className = 'jc-legend';
+      wrap.innerHTML = '<span class="jc-legend-label">Loss</span><span class="jc-legend-value jc-loss">--</span>';
+      card.querySelector('.jc-times').appendChild(wrap);
+
+      cards.appendChild(card);
+      built.push({
+        job, card, meter: m, face, trace,
+        lossEl: wrap.querySelector('.jc-loss'),
+        sim: { step: job.at, loss: 0.09, hist: [], lastSample: 0 },
+      });
+    }
+
+    section('Face A — ships today', '0.01 … 100 it/s, split at 1:1');
+    for (const j of JOBS) addCard(j, FACE_A, false);
+    section('Face B — s/it only', '1 … 60 s/it, built from your six recorded jobs');
+    for (const j of JOBS) addCard(j, FACE_B, false);
+    section('Face C — loss', 'rate demoted to the RATE legend; trace on the same fixed scale');
+    addCard(JOBS[0], FACE_C, true);
+
+    // ── Simulation ───────────────────────────────────────────────────────────
+    // 500ms, matching the real collector's snapshot timer. The earlier 180ms tick plus a sine
+    // jitter on the rate was the other half of the movement problem: a trainer's rate is flat,
+    // so anything that wobbles here is fiction that costs legibility.
+    const T0 = performance.now();
+    let last = T0;
+    setInterval(() => {
+      const now = performance.now();
+      const dt = (now - last) / 1000;
+      last = now;
+      const t = (now - T0) / 1000;
+      const phase = t % 26;
+      const throttled = phase > 16 && phase < 24;
+
+      for (const b of built) {
+        const s = b.sim, j = b.job;
+        const sPerIt = j.sPerIt * (j.throttle && throttled ? 1.33 : 1);
+        const rate = 1 / sPerIt;
+        // Sped up 60x against wall clock so the counters visibly move; the rate shown is real.
+        s.step = Math.min(j.steps, s.step + rate * dt * 60);
+
+        const target = 0.021 + 0.075 * Math.exp(-(s.step - j.at) / 900);
+        s.loss += (target - s.loss) * 0.08 * dt;
+        if (now - s.lastSample > 1000) {
+          s.lastSample = now;
+          s.hist.push(s.loss);
+          if (s.hist.length > 90) s.hist.shift();
+        }
+
+        const step = Math.floor(s.step);
+        window.Widgets.updateCard(b.card, j.host, {
+          status: 'online', queueRemaining: 0,
+          currentJob: {
+            step, maxSteps: j.steps, stepsPerSec: rate,
+            etaSec: (j.steps - step) * sPerIt, elapsedSec: step * j.sPerIt,
+            node: 'x', nodeName: throttled && j.throttle ? 'Training · throttled' : 'Training · saved @2000',
+            model: j.model, size: '1024x1024',
+          },
+        });
+
+        const rows = b.card.querySelectorAll('.jc-ident-row');
+        rows[0].querySelector('.jc-ident-label').textContent = 'Base Model';
+        rows[1].querySelector('.jc-ident-label').textContent = 'Resolution';
+        rows[2].querySelector('.jc-ident-label').textContent = 'Rank';
+        const rankEl = b.card.querySelector('.jc-count');
+        rankEl.textContent = String(j.rank);
+        rankEl.closest('.jc-ident-row').classList.remove('jc-ident-row--empty');
+        b.lossEl.textContent = s.loss.toFixed(4);
+        b.lossEl.classList.remove('jc-legend-value--empty');
+
+        if (b.face === FACE_C) b.meter.setValue(s.loss, { slow: true });
+        else { const r = b.face.read(sPerIt); b.meter.setValue(r.v, { slow: r.slow }); }
+
+        if (b.trace && s.hist.length > 1) {
+          b.trace.setAttribute('points', s.hist.map((v, i) => {
+            const y = 25 - ((Math.max(-3, Math.min(0, Math.log10(v))) + 3) / 3) * 24;
+            return `${(i / 89 * 200).toFixed(1)},${y.toFixed(1)}`;
+          }).join(' '));
+        }
+      }
+    }, 500);
+
+    document.getElementById('skin-select').addEventListener('change', (e) => {
+      document.body.className = `skin-${e.target.value}`;
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — trainer support mockup</title>
+  <!-- The REAL stylesheets and the REAL widget code. Nothing here is redrawn by hand, so what
+       you see is what the app would render. Only the data is fake, plus the two clearly-marked
+       proposals below (kind tag + training relabels), which are the things being decided. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+  <style>
+    /* ---- MOCK-ONLY: proposed additions, not yet in main.css ---- */
+
+    /* Stamped kind tag on the faceplate, right of the nameplate. Reads as another silkscreen
+       marking rather than a UI badge — the rack look falls apart the moment a pill appears. */
+    .jc-kind {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: #8b9096;
+      border: 1px solid #3a3f45;
+      border-radius: 2px;
+      padding: 0 5px;
+      line-height: 15px;
+      background: rgba(0, 0, 0, .18);
+      flex: none;
+    }
+    .jc-kind--train { color: #a89a7a; border-color: #4a4335; }
+
+    /* Mock scaffolding only. */
+    .mock-note {
+      font-family: 'Rajdhani', sans-serif; font-size: 12px; letter-spacing: .1em;
+      text-transform: uppercase; color: #7d838a; padding: 10px 16px 0;
+    }
+    #cards.mock-hide-gen .mock-kind-gen,
+    #cards.mock-hide-train .mock-kind-train { display: none; }
+  </style>
+</head>
+<body class="skin-rack">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <div id="topbar-controls">
+        <!-- PROPOSED: the toggle. One rack, filtered — not tabs. -->
+        <select id="kind-select" title="Show">
+          <option value="all">All Hosts</option>
+          <option value="comfyui">Generation</option>
+          <option value="train">Training</option>
+        </select>
+        <select id="skin-select" title="Skin">
+          <option value="rack">1U Rack</option>
+          <option value="glass">Obsidian Glass</option>
+        </select>
+        <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      </div>
+    </div>
+    <div class="mock-note">Mockup — fake data. Top-left dropdown is the proposed kind filter.</div>
+    <div id="cards"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script>
+  (function () {
+    const cards = document.getElementById('cards');
+
+    // Same shape the collectors already push. The training entries are what an ai-toolkit
+    // collector would emit off GET /api/jobs?id=<id> (step, total_steps, status) with the rate
+    // derived locally from step deltas, exactly as comfyui-client.js already does.
+    const HOSTS = [
+      {
+        name: 'New Main', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 2,
+          currentJob: {
+            step: 9, maxSteps: 20, stepsPerSec: 0.072, etaSec: 152, elapsedSec: 125,
+            node: '31', nodeName: 'KSampler',
+            model: 'wan2.2_i2v_high_noise_14B_fp8.safetensors', size: '832x480', frames: 121,
+          },
+        },
+      },
+      {
+        name: 'Trainer · FLUX LoRA', kind: 'train',
+        snap: {
+          status: 'online', queueRemaining: 1,
+          currentJob: {
+            step: 2350, maxSteps: 4000, stepsPerSec: 0.54, etaSec: 3055, elapsedSec: 4520,
+            node: 'train', nodeName: 'Training · saved @2000',
+            model: 'flux1-dev.safetensors', size: '1024x1024', rank: 32, loss: 0.0412,
+          },
+        },
+      },
+      {
+        name: 'Secondary', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 0,
+          currentJob: {
+            step: 14, maxSteps: 30, stepsPerSec: 3.4, etaSec: 4.7, elapsedSec: 9.2,
+            node: '9', nodeName: 'KSampler',
+            model: 'sdxl_base_1.0.safetensors', size: '1024x1024', batch: 4,
+          },
+        },
+      },
+      {
+        name: 'Trainer · SDXL Char', kind: 'train',
+        snap: {
+          status: 'online', queueRemaining: 0,
+          currentJob: {
+            step: 480, maxSteps: 2400, stepsPerSec: 2.9, etaSec: 662, elapsedSec: 168,
+            node: 'train', nodeName: 'Training',
+            model: 'sd_xl_base_1.0.safetensors', size: '1024x1024', rank: 16, loss: 0.0873,
+          },
+        },
+      },
+      {
+        name: 'Trainer · Wan Motion', kind: 'train',
+        snap: {
+          status: 'online', queueRemaining: 0,
+          currentJob: {
+            step: 6000, maxSteps: 6000, stepsPerSec: null, etaSec: null, elapsedSec: 27310,
+            finished: 'success',
+            model: 'wan2.2_t2v_14B.safetensors', size: '640x640', rank: 64,
+          },
+        },
+      },
+      // Queued job: ai-toolkit reports status 'queued' with a step of 0 and no rate. Nothing is
+      // measurable yet, so the module blanks — same rule as an idle ComfyUI host.
+      { name: 'Trainer · Queued', kind: 'train', snap: { status: 'online', queueRemaining: 3, currentJob: null } },
+      { name: 'Old Rig', kind: 'comfyui', snap: { status: 'offline', lastError: 'ECONNREFUSED' } },
+    ];
+
+    for (const host of HOSTS) {
+      const card = window.Widgets.createCard(host.name);
+      card.classList.add(host.kind === 'train' ? 'mock-kind-train' : 'mock-kind-gen');
+
+      // PROPOSED: kind tag, stamped on the faceplate next to the nameplate.
+      const tag = document.createElement('span');
+      tag.className = `jc-kind ${host.kind === 'train' ? 'jc-kind--train' : ''}`;
+      tag.textContent = host.kind === 'train' ? 'Train' : 'Gen';
+      card.querySelector('.jc-name').after(tag);
+
+      // PROPOSED: a training card carries a 4th legend for loss. Included so you can judge
+      // whether four values crowd the row at this width — it is the one number a trainer has
+      // that a sampler does not.
+      if (host.kind === 'train') {
+        const times = card.querySelector('.jc-times');
+        const wrap = document.createElement('div');
+        wrap.className = 'jc-legend';
+        wrap.innerHTML = '<span class="jc-legend-label">Loss</span><span class="jc-legend-value jc-loss">--</span>';
+        times.appendChild(wrap);
+      }
+
+      cards.appendChild(card);
+      window.Widgets.updateCard(card, host.name, host.snap);
+
+      // PROPOSED: the identity plate relabels per kind. Model stays; a trainer's second and
+      // third facts are the training resolution and the LoRA rank, not latent size and frames.
+      if (host.kind === 'train') {
+        const j = host.snap.currentJob;
+        card.querySelector('.jc-well--readout .jc-ident-row .jc-ident-label').textContent = 'Base Model';
+        const rows = card.querySelectorAll('.jc-ident-row');
+        rows[1].querySelector('.jc-ident-label').textContent = 'Resolution';
+        rows[2].querySelector('.jc-ident-label').textContent = 'Rank';
+        const rankEl = card.querySelector('.jc-count');
+        rankEl.textContent = j?.rank != null ? String(j.rank) : '';
+        rankEl.closest('.jc-ident-row').classList.toggle('jc-ident-row--empty', j?.rank == null);
+        const lossEl = card.querySelector('.jc-loss');
+        if (lossEl) {
+          lossEl.textContent = j?.loss != null ? j.loss.toFixed(4) : '--';
+          lossEl.classList.toggle('jc-legend-value--empty', j?.loss == null);
+        }
+      }
+    }
+
+    document.getElementById('kind-select').addEventListener('change', (e) => {
+      cards.classList.toggle('mock-hide-train', e.target.value === 'comfyui');
+      cards.classList.toggle('mock-hide-gen', e.target.value === 'train');
+    });
+    document.getElementById('skin-select').addEventListener('change', (e) => {
+      document.body.className = `skin-${e.target.value}`;
+    });
+  })();
+  </script>
+</body>
+</html>

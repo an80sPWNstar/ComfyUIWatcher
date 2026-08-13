@@ -24,6 +24,10 @@
     nameSpan.className = 'settings-host-name';
     nameSpan.textContent = host.name;
 
+    const kindSpan = document.createElement('span');
+    kindSpan.className = 'settings-host-kind';
+    kindSpan.textContent = host.kind === 'aitoolkit' ? 'train' : 'gen';
+
     const urlSpan = document.createElement('span');
     urlSpan.className = 'settings-host-url';
     urlSpan.textContent = host.url;
@@ -39,6 +43,7 @@
     });
 
     row.appendChild(nameSpan);
+    row.appendChild(kindSpan);
     row.appendChild(urlSpan);
     row.appendChild(removeBtn);
 
@@ -78,6 +83,20 @@
     urlInput.className = 'settings-input';
     urlInput.placeholder = 'http://host:8188';
 
+    // Which collector the host gets. The placeholder follows the choice because the two default
+    // ports are the single most useful hint here (ComfyUI 8188, ai-toolkit's UI 8675).
+    const kindSelect = document.createElement('select');
+    kindSelect.className = 'settings-input settings-kind';
+    for (const [value, label] of [['comfyui', 'Generation'], ['aitoolkit', 'Training']]) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      kindSelect.appendChild(opt);
+    }
+    kindSelect.addEventListener('change', () => {
+      urlInput.placeholder = kindSelect.value === 'aitoolkit' ? 'http://host:8675' : 'http://host:8188';
+    });
+
     const addBtn = document.createElement('button');
     addBtn.className = 'settings-add-btn';
     addBtn.textContent = 'Add';
@@ -99,7 +118,9 @@
       }
 
       const hosts = await window.comfyuiWatcher.getHosts();
-      const newHost = { name, url };
+      // An ai-toolkit UI started with AI_TOOLKIT_AUTH set also needs a `token` on the host entry.
+      // That is rare enough to live in userData/hosts.json rather than take a field here.
+      const newHost = { name, url, kind: kindSelect.value };
       const saved = await window.comfyuiWatcher.setHosts([...hosts, newHost]);
 
       // Compare against the normalized form main-process validate() stores (it strips
@@ -126,6 +147,7 @@
     });
 
     form.appendChild(nameInput);
+    form.appendChild(kindSelect);
     form.appendChild(urlInput);
     form.appendChild(addBtn);
     form.appendChild(errorDiv);

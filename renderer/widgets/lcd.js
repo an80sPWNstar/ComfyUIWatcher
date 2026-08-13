@@ -125,16 +125,59 @@ function createSevenSeg(digitCount) {
 // No "red zone": on real gear that marks overload, and there is nothing wrong with a slow
 // sampler — Bryan's video jobs live below 0.1 it/s by nature.
 
-const MET = { minLog: -2, maxLog: 2, sweepDeg: 96 }; // 0.01..100 it/s across ~96 degrees
+const SWEEP_DEG = 96;
+
+// Every face is graduated in it/s underneath, whatever its labels say. That is what keeps
+// needle direction meaning ONE thing in a rack that mixes generation and training modules:
+// further right is always faster. Only the printed numbers change.
+const FACES = {
+  // Sampling: four decades, 0.01..100 it/s, split at the 1:1 centre. Left half labelled in s/it
+  // (the reciprocal), right half in it/s, so every label is a whole number and the unit word for
+  // the half being read lights up.
+  sampling: {
+    minLog: -2,
+    maxLog: 2,
+    units: { slow: 's/it', fast: 'it/s' },
+    marks: [
+      { v: 0.01, label: '100' }, { v: 0.02 }, { v: 0.05 },
+      { v: 0.1, label: '10' }, { v: 0.2 }, { v: 0.5 },
+      { v: 1, label: '1', centre: true }, { v: 2 }, { v: 5 },
+      { v: 10, label: '10' }, { v: 20 }, { v: 50 }, { v: 100, label: '100' },
+    ],
+  },
+  // Training: 60..1 s/it, one unit, no dead half. Scaled from Bryan's own recorded ai-toolkit
+  // runs — 2.17, 3.66, 4.41, 5.09, 6.08 and 30.07 s/it. NOTHING he has ever trained ran faster
+  // than 1 it/s, so on the sampling face all six jobs pile up within a few degrees of centre and
+  // half the arc is spent on speeds no trainer reaches. Chosen from a live side-by-side mockup,
+  // 2026-08-13 (renderer/mock-train-dial.html, "face B").
+  //
+  // Labels descend left to right (60 … 1) BECAUSE the underlying scale is still it/s. Drawing it
+  // the other way round — 1 on the left, 60 on the right — was tried and rejected: it reads more
+  // naturally alone, but in a mixed rack needle-right would mean "fast" on a generation module
+  // and "slow" on the training module beside it.
+  training: {
+    minLog: -Math.log10(60),
+    maxLog: 0,
+    units: { slow: 'sec/iter', single: true },
+    marks: [
+      { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30 },
+      { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+      { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+      { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 },
+      { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+      { v: 1, label: '1' },
+    ],
+  },
+};
 
 /** it/s -> 0..1 across the face. Clamped: a rate off the end parks the needle at the stop. */
-function meterPos(itPerSec) {
+function meterPos(face, itPerSec) {
   const lg = Math.log10(itPerSec);
-  return Math.max(0, Math.min(1, (lg - MET.minLog) / (MET.maxLog - MET.minLog)));
+  return Math.max(0, Math.min(1, (lg - face.minLog) / (face.maxLog - face.minLog)));
 }
 
 function posToAngle(pos) {
-  return -MET.sweepDeg / 2 + pos * MET.sweepDeg;
+  return -SWEEP_DEG / 2 + pos * SWEEP_DEG;
 }
 
 // One rAF loop drives every needle on screen. Per-meter loops would mean one timer per host
@@ -171,9 +214,11 @@ function wakeNeedles() {
   }
 }
 
-function createRateMeter() {
+/** @param {'sampling'|'training'} [faceName] which graduation to print. */
+function createRateMeter(faceName) {
+  const face = FACES[faceName] ?? FACES.sampling;
   const wrap = document.createElement('div');
-  wrap.className = 'meter';
+  wrap.className = `meter meter--${faceName && FACES[faceName] ? faceName : 'sampling'}`;
 
   const svg = svgEl('svg', { viewBox: '0 0 200 92', class: 'meter-svg' });
   const cx = 100;
@@ -181,37 +226,20 @@ function createRateMeter() {
   const rTick = 60;
   const toRad = (a) => ((a - 90) * Math.PI) / 180;
 
-  const face = svgEl('rect', { x: 2, y: 2, width: 196, height: 88, rx: 3, class: 'meter-face' });
-  svg.appendChild(face);
+  svg.appendChild(svgEl('rect', { x: 2, y: 2, width: 196, height: 88, rx: 3, class: 'meter-face' }));
 
-  // Decade ticks plus the 2x and 5x marks inside each decade.
-  //
-  // The face is graduated in BOTH units, one per half, split at the 1:1 centre — left of centre
-  // in s/it, right of centre in it/s. That is not two scales overlaid (which was rejected): it
-  // is one log scale whose left half is labelled with the reciprocal, because below 1 it/s the
-  // number anyone actually says is seconds per step. The payoff is that every label on the face
-  // is a whole number — 100 10 1 10 100 — and the unit word for the half the needle is in
-  // lights up, so the face and the RATE readout always agree on which unit is being read.
-  const marks = [];
-  for (let d = MET.minLog; d <= MET.maxLog; d++) {
-    // Left of centre a decade of it/s IS a decade of s/it, reciprocated: 0.01 it/s = 100 s/it.
-    const shown = d < 0 ? Math.round(Math.pow(10, -d)) : Math.round(Math.pow(10, d));
-    marks.push({ lg: d, major: true, label: String(shown), centre: d === 0 });
-    if (d < MET.maxLog) {
-      for (const m of [2, 5]) marks.push({ lg: d + Math.log10(m), major: false });
-    }
-  }
-
-  for (const m of marks) {
-    const pos = (m.lg - MET.minLog) / (MET.maxLog - MET.minLog);
-    const a = posToAngle(pos);
-    const len = m.centre ? 13 : m.major ? 9 : 5;
+  // Graduations. A face's marks are listed explicitly (in it/s) rather than generated per decade:
+  // the training face is not decade-aligned, and hand-picking which marks carry a label is the
+  // difference between a readable dial and a wall of numbers.
+  for (const m of face.marks) {
+    const a = posToAngle(meterPos(face, m.v));
+    const len = m.centre ? 13 : m.label ? 9 : 5;
     svg.appendChild(svgEl('line', {
       x1: cx + (m.centre ? rTick - 5 : rTick) * Math.cos(toRad(a)),
       y1: cy + (m.centre ? rTick - 5 : rTick) * Math.sin(toRad(a)),
       x2: cx + (rTick + len) * Math.cos(toRad(a)),
       y2: cy + (rTick + len) * Math.sin(toRad(a)),
-      class: `meter-tick${m.major ? ' meter-tick--major' : ''}${m.centre ? ' meter-tick--centre' : ''}`,
+      class: `meter-tick${m.label ? ' meter-tick--major' : ''}${m.centre ? ' meter-tick--centre' : ''}`,
     }));
     if (m.label) {
       const rl = rTick + len + 7;
@@ -225,19 +253,24 @@ function createRateMeter() {
     }
   }
 
-  // ONE scale, one unit. This face has now been wrong twice in the other direction: first both
-  // "s/it" and "it/s" printed beside a single row of it/s numbers (a unit pointing at a scale
-  // that wasn't drawn), then a real second s/it row in a second ink — correct, but two rows of
-  // numbers on a 196px instrument is more than anyone reads at a glance. The exact figure,
+  // ONE scale, one unit per half. This face has been wrong twice in the other direction: first
+  // both "s/it" and "it/s" printed beside a single row of it/s numbers (a unit pointing at a
+  // scale that wasn't drawn), then a real second s/it row in a second ink — correct, but two rows
+  // of numbers on a 196px instrument is more than anyone reads at a glance. The exact figure,
   // flipped to s/it below 1 the way ComfyUI does it, lives in the RATE legend under the readout.
-  // One unit word per half, each under its own graduations, offset from the bottom centre
-  // because the needle pivots there and draws straight through anything printed at centre.
-  // The one the needle is currently reading lights up in pointer red.
+  //
+  // The words sit off bottom-centre because the needle pivots there and draws straight through
+  // anything printed at centre — a single-unit face keeps the same left slot for that reason,
+  // NOT the middle of the dial (moving it up to clear the pivot put it through the top
+  // graduations instead). The word for the half being read lights up in pointer red.
   const unitSlow = svgEl('text', { x: 44, y: 84, class: 'meter-unit meter-unit--slow' });
-  unitSlow.textContent = 's/it';
-  const unitFast = svgEl('text', { x: 156, y: 84, class: 'meter-unit meter-unit--fast' });
-  unitFast.textContent = 'it/s';
-  svg.append(unitSlow, unitFast);
+  unitSlow.textContent = face.units.slow ?? '';
+  svg.appendChild(unitSlow);
+  if (!face.units.single) {
+    const unitFast = svgEl('text', { x: 156, y: 84, class: 'meter-unit meter-unit--fast' });
+    unitFast.textContent = face.units.fast ?? '';
+    svg.appendChild(unitFast);
+  }
 
   const needle = svgEl('line', {
     x1: cx, y1: cy, x2: cx, y2: cy - (rTick + 3), class: 'meter-needle',
@@ -268,9 +301,9 @@ function createRateMeter() {
   wrap.appendChild(svg);
 
   const state = {
-    angle: -MET.sweepDeg / 2,
+    angle: -SWEEP_DEG / 2,
     vel: 0,
-    target: -MET.sweepDeg / 2,
+    target: -SWEEP_DEG / 2,
     apply(deg) {
       needle.setAttribute('transform', `rotate(${deg.toFixed(2)} ${cx} ${cy})`);
     },
@@ -287,10 +320,12 @@ function createRateMeter() {
       const live = itPerSec != null && Number.isFinite(itPerSec) && itPerSec > 0;
       wrap.classList.toggle('meter--nosignal', !live);
       // Which half is being read — lights that half's unit word, and it is the same 1.0 cutover
-      // the RATE legend under the readout uses, so face and figure never disagree.
-      wrap.classList.toggle('meter--reading-slow', live && itPerSec < 1);
-      wrap.classList.toggle('meter--reading-fast', live && itPerSec >= 1);
-      state.target = live ? posToAngle(meterPos(itPerSec)) : -MET.sweepDeg / 2;
+      // the RATE legend under the readout uses, so face and figure never disagree. A single-unit
+      // face has only one word, so it lights whenever the instrument reads anything at all.
+      const slow = face.units.single || itPerSec < 1;
+      wrap.classList.toggle('meter--reading-slow', live && slow);
+      wrap.classList.toggle('meter--reading-fast', live && !slow);
+      state.target = live ? posToAngle(meterPos(face, itPerSec)) : -SWEEP_DEG / 2;
       if (reduceMotion.matches) {
         state.angle = state.target;
         state.vel = 0;

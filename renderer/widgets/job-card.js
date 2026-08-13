@@ -59,10 +59,35 @@ function identRow(label, valueClass) {
   return row;
 }
 
-function createCard(hostName) {
+// What a card of each kind reads. The card is otherwise identical: same faceplate, same wells,
+// same honesty rules. A trainer differs only in which face its meter is printed with and which
+// three facts identify the job — a LoRA run has no latent size or frame count, and a sampler has
+// no rank or loss.
+const KINDS = {
+  comfyui: {
+    face: 'sampling',
+    meterLegend: 'Sampling Rate',
+    identLabels: ['Model', 'Size', 'Frames'],
+    loss: false,
+  },
+  aitoolkit: {
+    face: 'training',
+    // A trainer is not sampling. The legend has to match the face it is printed under, or the
+    // instrument claims to be measuring something the machine is not doing.
+    meterLegend: 'Training Rate',
+    identLabels: ['Base Model', 'Resolution', 'Rank'],
+    loss: true,
+  },
+};
+
+/** @param {'comfyui'|'aitoolkit'} [kind] selects face + identity labels; see KINDS. */
+function createCard(hostName, kind) {
+  const kindKey = KINDS[kind] ? kind : 'comfyui';
+  const spec = KINDS[kindKey];
   const card = document.createElement('div');
   card.className = 'job-card';
   card.dataset.host = hostName;
+  card.dataset.kind = kindKey;
 
   // Four corner screws. Decorative, but they are what makes the card read as a bolted-in
   // module rather than another rounded panel — the whole direction rests on them.
@@ -83,9 +108,14 @@ function createCard(hostName) {
   const queue = document.createElement('span');
   queue.className = 'jc-queue';
   queue.title = 'Prompts waiting in this host’s queue';
+  // What the host says it is doing right now, in its own words. A training run spends minutes
+  // loading a model and caching a dataset before its first step, and without this the card is
+  // just "running, no numbers" for all of it — indistinguishable from a stall.
+  const phase = document.createElement('span');
+  phase.className = 'jc-phase';
   const status = document.createElement('span');
   status.className = 'jc-status';
-  head.append(jewel, name, queue, status);
+  head.append(jewel, name, phase, queue, status);
 
   // ── Instrument wells ──
   const body = document.createElement('div');
@@ -93,10 +123,10 @@ function createCard(hostName) {
 
   const meterWell = document.createElement('div');
   meterWell.className = 'jc-well jc-well--meter';
-  const meter = window.Widgets.createRateMeter();
+  const meter = window.Widgets.createRateMeter(spec.face);
   const meterLegend = document.createElement('div');
   meterLegend.className = 'jc-well-legend';
-  meterLegend.textContent = 'Sampling Rate';
+  meterLegend.textContent = spec.meterLegend;
   meterWell.append(meter.el, meterLegend);
 
   const readWell = document.createElement('div');
@@ -122,8 +152,8 @@ function createCard(hostName) {
   // Second slot is the count, and what it counts depends on the job: frames for a video latent,
   // batch size for an image one. One row, relabelled — two rows would leave a dead label on
   // every job, since no job has both.
-  identPair.append(identRow('Size', 'jc-size'), identRow('Frames', 'jc-count'));
-  ident.append(identRow('Model', 'jc-model'), identPair);
+  identPair.append(identRow(spec.identLabels[1], 'jc-size'), identRow(spec.identLabels[2], 'jc-count'));
+  ident.append(identRow(spec.identLabels[0], 'jc-model'), identPair);
 
   const readout = document.createElement('div');
   readout.className = 'jc-readout';
@@ -138,6 +168,10 @@ function createCard(hostName) {
     legendValue('ETA', 'jc-eta'),
     legendValue('Rate', 'jc-rate'),
   );
+  // Loss is the one figure a trainer has that a sampler does not. It goes in the legend row
+  // rather than on an instrument: it moves every step but its absolute value is not comparable
+  // between models, so it is something to read, not something to gauge.
+  if (spec.loss) times.append(legendValue('Loss', 'jc-loss'));
   readWell.append(readout, node, times);
 
   body.append(meterWell, readWell);
@@ -210,7 +244,9 @@ function updateCard(card, hostName, snapshot) {
     if (ok) lcd.setValue(0);
     else if (hasSteps) lcd.setValue(job.maxSteps - done);
     else lcd.setText('N/A');
-    nodeEl.textContent = ok ? 'Finished' : 'Failed';
+    // A collector may name the end state itself ("Trained", "Stopping") — a training run that
+    // completed is not "Finished" in the same sense a 20-step sampler job is.
+    nodeEl.textContent = job.stateText ?? (ok ? 'Finished' : 'Failed');
     fill.style.width = ok ? '100%' : `${hasSteps ? ratio * 100 : 0}%`;
     stepEl.textContent = hasSteps ? `Step ${done} / ${job.maxSteps}` : '';
     pctEl.textContent = ok ? '100%' : hasSteps ? `${Math.round(ratio * 100)}%` : '';
@@ -245,8 +281,17 @@ function updateCard(card, hostName, snapshot) {
   // because an empty label is quieter than a placeholder that never fills in.
   setIdent(card, '.jc-model', job?.model ?? null);
   setIdent(card, '.jc-size', job?.size ?? null);
-  if (job?.frames != null) setIdent(card, '.jc-count', String(job.frames), 'Frames');
-  else setIdent(card, '.jc-count', job?.batch != null ? String(job.batch) : null, 'Batch Size');
+  if (card.dataset.kind === 'aitoolkit') {
+    // Rank is fixed for a run, so unlike frames/batch this slot never relabels itself.
+    setIdent(card, '.jc-count', job?.rank != null ? String(job.rank) : null);
+    // Loss stays "--" until the run has written its first sample; a training run that has not
+    // logged one yet has no loss, and 0.0000 would be a lie.
+    setLegend(card, '.jc-loss', job?.loss != null ? job.loss.toFixed(4) : '--');
+  } else if (job?.frames != null) {
+    setIdent(card, '.jc-count', String(job.frames), 'Frames');
+  } else {
+    setIdent(card, '.jc-count', job?.batch != null ? String(job.batch) : null, 'Batch Size');
+  }
 
   // A well's legend lights in the card colour only while that instrument is actually reading
   // something — steps present for the readout, a rate for the meter. Same honesty rule as the
@@ -254,6 +299,16 @@ function updateCard(card, hostName, snapshot) {
   const rateLive = !!job && !job.finished && Number.isFinite(job.stepsPerSec) && job.stepsPerSec > 0;
   card.querySelector('.jc-well--readout').classList.toggle('jc-well--live', hasSteps);
   card.querySelector('.jc-well--meter').classList.toggle('jc-well--live', rateLive);
+
+  // Phase text is the host's own account of itself, so it is shown verbatim and only when there
+  // is one — never a placeholder, and never invented from status.
+  const phaseEl = card.querySelector('.jc-phase');
+  const phase = job?.phase ?? null;
+  phaseEl.textContent = phase ?? '';
+  phaseEl.title = phase ?? '';
+  phaseEl.classList.toggle('jc-phase--on', !!phase);
+  // No separate "is loading" card state is needed: a job with no step numbers already sets
+  // .job-card--stepless, which is what makes the bar sweep.
 
   const queueEl = card.querySelector('.jc-queue');
   const q = snapshot?.queueRemaining;

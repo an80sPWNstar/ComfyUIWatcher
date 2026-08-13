@@ -14,9 +14,18 @@ function render(snapshots) {
   }
 
   for (const [hostName, snapshot] of Object.entries(snapshots)) {
+    const kind = snapshot?.host?.kind ?? 'comfyui';
     let card = cardsByHost.get(hostName);
+    // A card is built for its kind (meter face, identity labels), so a host switched from
+    // generation to training in settings gets a new card rather than a relabelled one.
+    if (card && card.dataset.kind !== kind) {
+      window.Widgets.destroyCard(card);
+      card.remove();
+      cardsByHost.delete(hostName);
+      card = null;
+    }
     if (!card) {
-      card = window.Widgets.createCard(hostName);
+      card = window.Widgets.createCard(hostName, kind);
       cardsByHost.set(hostName, card);
       cardsEl.appendChild(card);
     }
@@ -45,6 +54,28 @@ applySkin(startSkin);
 skinSelect.addEventListener('change', () => {
   applySkin(skinSelect.value);
   localStorage.setItem(SKIN_KEY, skinSelect.value);
+});
+
+// ── Kind filter ──
+// One rack, filtered — not tabs. A watcher's normal question is "what is this machine doing",
+// and generation and training hosts answer it the same way; splitting them into tabs would hide
+// half the rack behind a click for no gain. Pure CSS on a container class, so filtering never
+// rebuilds a card or interrupts a running job's readout, same as skins.
+const FILTERS = ['all', 'comfyui', 'aitoolkit'];
+const FILTER_KEY = 'comfyuiwatcher-kind-filter';
+
+function applyFilter(filter) {
+  for (const f of FILTERS) cardsEl.classList.toggle(`filter-${f}`, f === filter);
+}
+
+const kindSelect = document.getElementById('kind-select');
+const savedFilter = localStorage.getItem(FILTER_KEY);
+const startFilter = FILTERS.includes(savedFilter) ? savedFilter : 'all';
+kindSelect.value = startFilter;
+applyFilter(startFilter);
+kindSelect.addEventListener('change', () => {
+  applyFilter(kindSelect.value);
+  localStorage.setItem(FILTER_KEY, kindSelect.value);
 });
 
 // Settings panel sits above the cards; gear button in the top bar toggles it.
