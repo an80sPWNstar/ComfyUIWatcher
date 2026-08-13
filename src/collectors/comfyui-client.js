@@ -29,6 +29,9 @@ const POLL_MS = 1000; // how often we poll /queue for job presence (execution WS
 const WebSocketImpl = globalThis.WebSocket ?? require('ws');
 const FINISHED_HOLD_MS = 10000; // how long a finished job stays on the card before it clears to Idle
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 10000]; // caps at 10s
+// How long a job must have been running, with no watcher.* traffic, before we will say the relay
+// is missing. A relay speaks within a step of the job starting; this is generous on purpose.
+const RELAY_VERDICT_MS = 10000;
 
 class ComfyUIClient {
   /**
@@ -46,6 +49,8 @@ class ComfyUIClient {
     this.system = null; // crystools.monitor payload, or null if not installed
     this._progressHistory = []; // [{value, atMs}] recent samples for the step-rate EMA
     this._nodeNames = {}; // node id -> _meta.title || class_type, from the running prompt's graph
+    this.relaySeen = false; // has this host ever sent a watcher.* message (i.e. relay installed)
+    this._firstJobSeenAtMs = null; // when this host was first seen running anything
     this._reconnectAttempt = 0;
     this._tickTimer = null;
     this._pollTimer = null;
@@ -116,6 +121,9 @@ class ComfyUIClient {
         }
         this._nodeNames = names;
       }
+      // First time we have seen this host actually execute anything. Timestamped so _relayState()
+      // can tell "idle, nothing to learn" from "a job ran and the relay stayed silent".
+      if (!this._firstJobSeenAtMs) this._firstJobSeenAtMs = Date.now();
       if (!this.currentJob || this.currentJob.promptId !== runningId) {
         // A job we did not know about (foreign, or ours after a missed message) — start fresh.
         this.currentJob = { promptId: runningId, startedAtMs: Date.now() };
@@ -212,7 +220,13 @@ class ComfyUIClient {
     // Our optional comfyui-relay custom node rebroadcasts the targeted execution messages to
     // everyone under a "watcher." prefix — treat them exactly like the originals. (Own-clientId
     // jobs then arrive twice, original + relay copy; the handlers are idempotent for that.)
-    if (typeof type === 'string' && type.startsWith('watcher.')) type = type.slice(8);
+    if (typeof type === 'string' && type.startsWith('watcher.')) {
+      type = type.slice(8);
+      // Seeing one of these is PROOF the relay node is installed and loaded on this host — it is
+      // the only source of watcher.* traffic. The setup panel reports it, so the answer to "did
+      // my copy-into-custom_nodes work?" is observed, not assumed.
+      this.relaySeen = true;
+    }
     switch (type) {
       case 'status': {
         this.queueRemaining = data?.status?.exec_info?.queue_remaining ?? null;
@@ -320,6 +334,21 @@ class ComfyUIClient {
     }
   }
 
+  /**
+   * true / false / null for "is the relay node installed on this host".
+   *
+   * true is proof: only the relay emits watcher.* traffic. false is a claim, so it is only made
+   * once a job has been running for RELAY_VERDICT_MS without a single watcher.* message — long
+   * enough that a relay would certainly have spoken. Until then it is null (unknown), because an
+   * idle host proves nothing either way and "your relay is missing" is the kind of thing this
+   * widget should not say on a guess.
+   */
+  _relayState() {
+    if (this.relaySeen) return true;
+    if (this._firstJobSeenAtMs && Date.now() - this._firstJobSeenAtMs > RELAY_VERDICT_MS) return false;
+    return null;
+  }
+
   _emit() {
     const now = Date.now();
     if (
@@ -337,6 +366,7 @@ class ComfyUIClient {
       lastError: this.lastError,
       queueRemaining: this.queueRemaining,
       system: this.system,
+      relay: this._relayState(),
       currentJob: job
         ? {
             promptId: job.promptId ?? null,

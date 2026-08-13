@@ -857,6 +857,87 @@ body {
   }
 }
 
+/* ── Setup panel (first run) ── */
+.setup-panel {
+  max-width: 720px;
+}
+
+.setup-text {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--legend-mid);
+  margin: 8px 0 10px;
+}
+
+.setup-steps {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--legend);
+}
+
+.setup-path-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.setup-path {
+  flex: 1 1 260px;
+  min-width: 0;
+  background: #0A0C0E;
+  border: 1px solid #05070A;
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--legend);
+  overflow-wrap: anywhere;
+}
+
+.setup-path--error { color: #C08A84; }
+
+.setup-target {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--legend-dim);
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Per-host verdict. Three states, and the third one is honest ignorance. */
+.setup-status { margin-bottom: 12px; }
+
+.setup-status-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.setup-status-host {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  color: var(--legend-mid);
+  min-width: 120px;
+}
+
+.setup-ok { color: #7FBF8F; }
+.setup-warn { color: #C08A84; }
+.setup-dim { color: var(--legend-dim); }
+
+.setup-done { min-width: 84px; }
+
 /* ── Settings panel ── */
 .settings-panel {
   margin: var(--gap) var(--gap) 0 var(--gap);

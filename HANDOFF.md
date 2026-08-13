@@ -177,3 +177,19 @@ Append-only session log. Newest entry wins; older entries are history, not instr
   else was watched against the real H3 run.
 - Known and deliberately not done: `comfyui-client.js` `_poll()` still has the unbounded-fetch
   pattern that was fixed in the ai-toolkit collector.
+
+## 2026-08-13 03:45 -- v0.0.5: relay ships with the installer
+
+- Found while answering Bryan: v0.0.4's installer contained NO copy of comfyui-relay (resources/
+  held only app.asar + elevate.exe), so an installer user could not do the one manual step that
+  makes ComfyUI step progress work, and nothing told them it existed.
+- Fix: `extraResources` puts comfyui-relay at resources/comfyui-relay (NOT in the asar -- you
+  cannot copy a file out of an archive). `relayDir()` in main.js resolves packaged vs dev.
+- New first-run setup panel (renderer/widgets/setup-panel.js): the 4 steps, the real on-disk path,
+  an Open-folder button (shell.openPath), dismissed into the (i) button afterwards.
+- Relay detection: comfyui-client sets relaySeen on any watcher.* message; snapshot.relay is
+  true/false/null and false is only claimed 10s into a running job. Panel shows it per host.
+- VERIFIED IN THE PACKAGED BUILD, not just the source: attached over CDP (playwright's _electron
+  driver cannot launch a packaged app) and confirmed relay.dir -> resources\comfyui-relay,
+  exists:true, panel visible on first run.
+- Linux built in WSL; resources/comfyui-relay present in linux-unpacked too.

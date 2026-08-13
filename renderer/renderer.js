@@ -3,6 +3,9 @@ const cardsByHost = new Map();
 
 function render(snapshots) {
   const seen = new Set(Object.keys(snapshots));
+  // Relay verdicts are per host and only meaningful once jobs run, so the setup panel is fed from
+  // the same stream the cards are.
+  window.Widgets.updateSetupRelayStatus(snapshots);
 
   // Remove cards for hosts no longer present.
   for (const [hostName, card] of cardsByHost) {
@@ -84,3 +87,12 @@ appEl.insertBefore(window.Widgets.createSettingsPanel(), cardsEl);
 document.getElementById('settings-btn').addEventListener('click', () => {
   window.Widgets.toggleSettingsPanel();
 });
+
+// Setup panel. Shown unprompted on first launch: without the relay node, ComfyUI cards can never
+// show step progress, and a widget that silently does half its job looks broken rather than
+// unconfigured. After that it lives behind the (i) button.
+appEl.insertBefore(window.Widgets.createSetupPanel(), cardsEl);
+document.getElementById('setup-btn').addEventListener('click', () => {
+  window.Widgets.toggleSetupPanel();
+});
+window.Widgets.maybeShowSetupPanel();

@@ -1,6 +1,6 @@
 {
   "name": "comfyuiwatcher",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "comfyuiWATCHER — a desktop widget showing live step/speed/ETA for ComfyUI instances and ai-toolkit LoRA trainers",
   "author": "Bryan",
   "license": "MIT",
@@ -35,6 +35,12 @@
       "styles/**/*",
       "assets/**/*",
       "!renderer/mock-*.html"
+    ],
+    "extraResources": [
+      {
+        "from": "comfyui-relay",
+        "to": "comfyui-relay"
+      }
     ],
     "win": {
       "target": "nsis"

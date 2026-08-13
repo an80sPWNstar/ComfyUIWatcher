@@ -185,6 +185,22 @@ message timestamps (server clock, used only as a delta — `finalElapsedSec`). H
 shows an animated indeterminate bar when running with no step data; step X/Y + ETA appear only
 when real progress messages arrive. Never fabricate a rate.
 
+**Shipping the relay (0.0.5, 2026-08-13).** `comfyui-relay/` is an **extraResource**, NOT part of
+the asar — the user has to copy the folder into `custom_nodes/`, and you cannot drag a file out of
+an archive. It lands at `resources/comfyui-relay/`; `relayDir()` in `main.js` returns that when
+packaged and the repo folder in dev. Before this, an installer user had no copy of the relay at
+all and no way to know they needed one, which meant the exe silently shipped without half its
+ComfyUI functionality.
+- **First-run setup panel** (`renderer/widgets/setup-panel.js`) explains the one manual step, prints
+  the on-disk path, and opens it in Explorer via `shell.openPath`. Shown automatically until
+  dismissed (`localStorage['comfyuiwatcher-setup-seen']`), then lives behind the (i) button.
+- **Relay detection is observed, not assumed.** `comfyui-client.js` sets `relaySeen` when any
+  `watcher.*` message arrives — only the relay emits those — and the snapshot carries
+  `relay: true | false | null`. **false is only claimed after a job has been running for 10s with
+  no relay traffic**; an idle host stays `null`, because "your relay is missing" is not something
+  to say on a guess. The panel prints the verdict per host, so "did my copy work?" is answered by
+  observation.
+
 **True step progress for all jobs — `comfyui-relay/` (built 2026-08-11, Bryan asked for it):**
 a custom node that wraps `PromptServer.send_sync` and re-emits each targeted execution message
 as a broadcast copy under a `watcher.`-prefixed type (so ComfyUI's own frontends ignore it).
