@@ -470,3 +470,15 @@ interpret the rate recorder. Both addressed, verified in the mock and the real a
   from the packaged build by the existing "!renderer/mock-*.html" glob.
 - Released: https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.6 with all three
   installers attached (exe 78.6MB, AppImage 107.6MB, deb 74.5MB). Commit 3d99385 pushed to main.
+
+## 2026-08-14 (session close) -- state at sign-off
+
+- main = ebe944e, clean tree, pushed. v0.0.6 released with all three installers.
+- App left running from source (node_modules electron), Reactor Console look.
+- OPEN, nothing blocking: (1) restart both ComfyUI instances to load the updated relay -- the copies
+  in D:\ComfyUI_Installs are current on disk but the running processes still have the old module, so
+  the DRIVER window shows 3 of 4 build windows until then; (2) ROCm detection is unit-tested only,
+  there is no AMD box on this rack to prove it against; (3) the compact reactor variant (drop the
+  recorder) was discussed and deliberately not built.
+- Not started, still the standing backlog: window state persistence + tray, a UI for EDITING a host
+  (only add/remove/hide/reorder exist), and other trainers (Musubi needs log tailing, no job API).
