@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — look comparison (live)</title>
+  <!-- The REAL stylesheets and the REAL widget code, so what shows here is what the app renders.
+       Only the data is fake, and it MOVES: steps advance, rates wander, a batch job restarts its
+       bar, a run finishes. A look decided off a static card is a look decided off the one frame
+       that happened to look good.
+
+       All five looks are here, and the selector dispatches exactly the way renderer.js does: the
+       first three repaint the rack card, the last two build the reactor panel (a different widget,
+       so those switches rebuild). Serve the repo (npx http-server . -p 8791) rather than opening
+       this as file:// — the fonts are same-origin. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+  <link rel="stylesheet" href="../styles/reactor.css" />
+</head>
+<body class="skin-halo size-normal">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <div id="topbar-controls">
+        <select id="skin-select" title="Look">
+          <option value="rack">1U Rack</option>
+          <option value="glass">Obsidian Glass</option>
+          <option value="halo" selected>Obsidian Halo</option>
+          <option value="room">Control Room</option>
+          <option value="console">Reactor Console</option>
+        </select>
+        <select id="size-select" title="Module size">
+          <option value="compact">Compact</option>
+          <option value="normal" selected>Normal</option>
+          <option value="large">Large</option>
+        </select>
+        <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      </div>
+    </div>
+    <div id="cards"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script src="widgets/reactor-panel.js"></script>
+  <script>
+  (function () {
+    const cards = document.getElementById('cards');
+
+    // Snapshots in the shape the collectors push. `tick` mutates one every 500ms the way a live
+    // host would, so every state on screen is a state the app can actually be in.
+    const HOSTS = [
+      {
+        name: 'New Main', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 2, relay: true,
+          // What /system_stats + the relay's /watcher/host_info report. A host with the updated
+          // relay has all four; see Render Box for the one that cannot know its driver.
+          versions: { comfyui: '0.33.1', pytorch: '2.13.0', accel: 'CUDA', accelVersion: '13.0', driver: '581.15' },
+          currentJob: {
+            step: 3, maxSteps: 8, stepsPerSec: 0.28, etaSec: 18, elapsedSec: 96, jobEtaSec: 640,
+            node: '9', nodeName: 'KSampler', pass: 3, passTotal: 28,
+            model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1,
+          },
+        },
+        tick(j) { // batch job: the bar restarts every 8 steps and the item counter advances
+          j.step += 1;
+          if (j.step > j.maxSteps) { j.step = 1; j.pass = (j.pass % j.passTotal) + 1; }
+          j.stepsPerSec = 0.24 + Math.random() * 0.09;
+          j.etaSec = (j.maxSteps - j.step) / j.stepsPerSec;
+          j.jobEtaSec = (j.passTotal - j.pass) * (j.maxSteps / j.stepsPerSec);
+          j.elapsedSec += 3.5;
+        },
+      },
+      {
+        name: 'Secondary', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 0, relay: true,
+          // An AMD host: the accelerator window renames itself from the torch build tag (2.5.1+rocm6.2).
+          versions: { comfyui: '0.31.1', pytorch: '2.5.1', accel: 'ROCm', accelVersion: '6.2', driver: '6.8.5' },
+          currentJob: {
+            step: 11, maxSteps: 30, stepsPerSec: 3.6, etaSec: 5.3, elapsedSec: 3.1,
+            node: '31', nodeName: 'KSamplerAdvanced',
+            model: 'sd_xl_base_1.0.safetensors', size: '1152x896', batch: 4,
+          },
+        },
+        tick(j) { // fast sampler: needle well right of centre, rate jitters
+          j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
+          j.stepsPerSec = 2.9 + Math.random() * 1.4;
+          j.etaSec = (j.maxSteps - j.step) / j.stepsPerSec;
+          j.elapsedSec += 0.5;
+        },
+      },
+      {
+        name: 'AI-Toolkit', kind: 'aitoolkit',
+        snap: {
+          status: 'online', queueRemaining: 0,
+          currentJob: {
+            step: 2210, maxSteps: 6000, stepsPerSec: 0.39, etaSec: 9640, elapsedSec: null,
+            node: 'train', nodeName: 'w1f3y_h3_v1', phase: 'Training',
+            model: 'MiniMax-H3', size: '512/768/1024', rank: 16, loss: 0.0341,
+          },
+        },
+        tick(j) { // trainer: ~2.6 s/it, loss wanders
+          j.step += 1;
+          j.stepsPerSec = 1 / (2.4 + Math.random() * 0.5);
+          j.etaSec = (j.maxSteps - j.step) / j.stepsPerSec;
+          j.loss = Math.max(0.005, j.loss + (Math.random() - 0.5) * 0.004);
+        },
+      },
+      {
+        // Running, no step numbers — a foreign job on a host without the relay node. Lamp on,
+        // beam parked, NO SIGNAL, N/A steps: the honest "nothing to report" state. On the reactor
+        // panel this is also the one host that lights RELAY ABSENT.
+        name: 'Render Box', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 1, relay: false,
+          // No relay => no driver version, ever. That window is REMOVED rather than dashed.
+          versions: { comfyui: '0.30.5', pytorch: '2.4.1', accel: 'CUDA', accelVersion: '12.1', driver: null },
+          currentJob: { step: null, maxSteps: null, stepsPerSec: null, etaSec: null, elapsedSec: 41, node: null },
+        },
+        tick(j) { j.elapsedSec += 0.5; },
+      },
+      {
+        name: 'Trainer · Wan', kind: 'aitoolkit',
+        snap: {
+          status: 'online', queueRemaining: 0,
+          currentJob: {
+            step: 6000, maxSteps: 6000, stepsPerSec: null, etaSec: null, elapsedSec: 27310,
+            finished: 'success', stateText: 'Trained',
+            model: 'wan2.2_t2v_14B', size: '640/768', rank: 64, loss: 0.0218,
+          },
+        },
+      },
+      // Online, nothing running: dark face, instruments still there.
+      {
+        name: 'Old Rig', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 0, currentJob: null,
+          // An online host reports its build whether or not it is working — that is the point of
+          // those windows: they answer "what is this box" while it sits idle.
+          // No build tag on this one: the stack is known from the card, the version is not.
+          versions: { comfyui: '0.29.3', pytorch: '2.3.1', accel: 'ROCm', accelVersion: null, driver: '6.7.0' },
+        },
+      },
+      // Not there at all: blanking panel.
+      { name: 'Laptop', kind: 'comfyui', snap: { status: 'offline', lastError: 'ECONNREFUSED', currentJob: null } },
+      {
+        name: 'Failed Run', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 0, relay: true,
+          versions: { comfyui: '0.33.1', pytorch: '2.13.0', accel: 'CUDA', accelVersion: '13.0', driver: '581.15' },
+          currentJob: {
+            step: 6, maxSteps: 20, stepsPerSec: null, etaSec: null, elapsedSec: 12.4,
+            finished: 'error', model: 'wan2.2_i2v_high_noise_14B_fp8.safetensors', size: '832x480', frames: 121,
+          },
+        },
+      },
+    ];
+
+    // The same two widget families renderer.js dispatches on, with the same rule: skins repaint,
+    // a family change rebuilds.
+    const LOOKS = {
+      rack: { widget: 'card', body: 'skin-rack' },
+      glass: { widget: 'card', body: 'skin-glass' },
+      halo: { widget: 'card', body: 'skin-halo' },
+      room: { widget: 'reactor', idiom: 'room', body: 'layout-reactor' },
+      console: { widget: 'reactor', idiom: 'console', body: 'layout-reactor' },
+    };
+
+    const skinSelect = document.getElementById('skin-select');
+    const sizeSelect = document.getElementById('size-select');
+    let built = [];
+
+    function build() {
+      const look = LOOKS[skinSelect.value];
+      for (const b of built) {
+        if (b.card.dataset.widget === 'reactor') window.Widgets.destroyReactorPanel(b.card);
+        else window.Widgets.destroyCard(b.card);
+      }
+      cards.replaceChildren();
+      built = HOSTS.map((h) => {
+        const card = look.widget === 'reactor'
+          ? window.Widgets.createReactorPanel(h.name, h.kind, look.idiom)
+          : window.Widgets.createCard(h.name, h.kind);
+        cards.appendChild(card);
+        return { host: h, card, widget: look.widget };
+      });
+      paint();
+    }
+
+    function paint() {
+      for (const { host, card, widget } of built) {
+        if (widget === 'reactor') window.Widgets.updateReactorPanel(card, host.name, host.snap);
+        else window.Widgets.updateCard(card, host.name, host.snap);
+      }
+    }
+
+    function applyBody() {
+      document.body.className = `${LOOKS[skinSelect.value].body} size-${sizeSelect.value}`;
+    }
+
+    applyBody();
+    build();
+
+    setInterval(() => {
+      for (const { host } of built) {
+        if (host.tick && host.snap.currentJob) host.tick(host.snap.currentJob);
+      }
+      paint();
+    }, 500);
+
+    skinSelect.addEventListener('change', () => { applyBody(); build(); });
+    sizeSelect.addEventListener('change', applyBody);
+  })();
+  </script>
+</body>
+</html>

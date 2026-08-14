@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — reactor panel (live)</title>
+  <!-- "What if this were a panel in a nuclear power station."
+       One layout, two idioms: P1 CONTROL ROOM (painted steel, ivory meter faces, incandescent
+       annunciators) and P2 REACTOR CONSOLE (the same panel rebuilt in glass and xenon).
+
+       THE RULE THAT MAKES THIS HONEST: a control room is dense because it has many real signals,
+       not because it has many shapes. Every lamp, meter and counter here is driven by something
+       the collectors actually report — run/queue/batch/no-step-data/relay/done/fault/offline are
+       real conditions, the recorder plots measured rate only, and an unlit annunciator is a real
+       "not true", not decoration. Nothing on this panel is invented to fill space; the ornament is
+       bezels, screws and silkscreen, never a number. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <style>
+    body { overflow: auto; background: #0A0C0E; }
+    #app { height: auto; min-height: 100vh; }
+    .mock-head { font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase; color: #8b9096; padding: 14px 16px 0; }
+    .mock-head b { color: #FFA22C; font-weight: 600; }
+    .mock-sub { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: #6a7076; padding: 3px 16px 0; }
+    #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(520px,100%),1fr)); gap: 14px; padding: 14px; align-content: start; }
+
+    /* ══ Panel shell — shared geometry, both idioms ══════════════════════════ */
+    .pan {
+      position: relative; border-radius: 4px; padding: 12px 14px 13px;
+      font-family: 'Rajdhani', sans-serif;
+      --lit: var(--p-idle);
+    }
+    .pan--run { --lit: var(--p-run); }
+    .pan--ok  { --lit: var(--p-ok); }
+    .pan--err { --lit: var(--p-err); }
+
+    /* P1 · CONTROL ROOM — painted steel, warm lamps, ivory faces. */
+    .pan--room {
+      --p-face: #2B2F32; --p-ink: #CFC9BA; --p-dim: #7C8288; --p-well: #16191B;
+      --p-run: #FFA22C; --p-ok: #46C68F; --p-err: #E24B3A; --p-idle: #6E7981; --p-wait: #E0B341;
+      --p-glass: #EDE3C6; --p-glass-ink: #23211C;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+        linear-gradient(180deg, #34383B 0%, #2B2F32 16%, #24282B 100%);
+      border: 1px solid #0A0C0E;
+      box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 -1px 0 rgba(0,0,0,.6) inset, 0 6px 18px rgba(0,0,0,.55);
+      color: var(--p-ink);
+    }
+    /* P2 · REACTOR CONSOLE — same panel, glass and xenon. */
+    .pan--console {
+      --p-face: rgba(255,255,255,.035); --p-ink: #E6ECF6; --p-dim: rgba(230,236,246,.4); --p-well: rgba(0,0,0,.35);
+      --p-run: #7FA8FF; --p-ok: #45E3B0; --p-err: #FF5470; --p-idle: #55606E; --p-wait: #FFC46B;
+      --p-glass: #070A10; --p-glass-ink: rgba(226,236,255,.62);
+      background: linear-gradient(180deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,.02) 34%, rgba(255,255,255,.012) 100%);
+      border: 1px solid rgba(255,255,255,.075); border-radius: 14px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.09) inset, 0 18px 40px -20px rgba(0,0,0,.95);
+      color: var(--p-ink);
+    }
+    .pan--console .p-screw { display: none; }
+
+    .p-screw { position: absolute; width: 8px; height: 8px; border-radius: 50%;
+      background: linear-gradient(90deg, transparent 42%, rgba(0,0,0,.55) 42% 58%, transparent 58%), radial-gradient(circle at 34% 28%, #6C737A, #3A4046 60%, #23282C 100%);
+      box-shadow: 0 1px 1px rgba(0,0,0,.6); }
+    .p-screw--tl { top: 5px; left: 5px; } .p-screw--tr { top: 5px; right: 5px; }
+    .p-screw--bl { bottom: 5px; left: 5px; } .p-screw--br { bottom: 5px; right: 5px; }
+
+    /* ── Header: unit designation ── */
+    .p-head { display: flex; align-items: center; gap: 10px; padding: 0 4px 8px; margin-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,.5); box-shadow: 0 1px 0 rgba(255,255,255,.06); }
+    .p-jewel { width: 12px; height: 12px; border-radius: 50%; flex: none;
+      background: radial-gradient(circle at 34% 28%, #fff 4%, var(--lit) 46%, rgba(0,0,0,.75) 100%);
+      box-shadow: 0 0 9px var(--lit), 0 0 1px 1px rgba(0,0,0,.7) inset; }
+    .pan--console .p-jewel { border-radius: 2px; width: 3px; height: 15px; background: var(--lit); box-shadow: 0 0 10px var(--lit); }
+    .p-unit { font-size: 9px; font-weight: 600; letter-spacing: .2em; color: var(--p-dim); flex: none; }
+    .p-name { font-size: 14px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pan--room .p-name { text-shadow: 0 -1px 0 rgba(0,0,0,.75), 0 1px 0 rgba(255,255,255,.08); }
+    .p-mode { font-family: 'Share Tech Mono', monospace; font-size: 10.5px; color: var(--lit); flex: none; }
+    .p-hstat { font-size: 10px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--p-dim); padding-left: 10px; border-left: 1px solid rgba(0,0,0,.5); flex: none; }
+
+    /* ── Annunciator bank: the wall of labelled lamps ── */
+    .p-ann { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 11px; }
+    .p-tile {
+      position: relative; text-align: center; padding: 5px 3px 4px; border-radius: 2px;
+      font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--p-dim); background: var(--p-well);
+      border: 1px solid rgba(0,0,0,.55); box-shadow: 0 1px 0 rgba(255,255,255,.05);
+      transition: color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+    .pan--console .p-tile { border-radius: 7px; border-color: rgba(255,255,255,.05); }
+    .p-tile--on { color: #1A1206; background: var(--tone, var(--p-run)); box-shadow: 0 0 14px color-mix(in srgb, var(--tone, var(--p-run)) 60%, transparent), 0 1px 0 rgba(255,255,255,.25) inset; }
+    .pan--console .p-tile--on { color: #05070B; }
+    /* An annunciator that has just come true flashes, then goes steady — the way a real one does. */
+    .p-tile--new { animation: annflash .42s steps(1) 3; }
+    @keyframes annflash { 50% { opacity: .35; } }
+
+    /* ── Instrument row ── */
+    .p-row { display: flex; gap: 10px; align-items: stretch; margin-bottom: 10px; }
+    .p-inst { flex: 1 1 0; min-width: 0; background: var(--p-well); border: 1px solid rgba(0,0,0,.55); border-radius: 3px; padding: 7px 8px 5px; box-shadow: 0 2px 6px rgba(0,0,0,.6) inset, 0 1px 0 rgba(255,255,255,.06); }
+    .pan--console .p-inst { border-radius: 10px; border-color: rgba(255,255,255,.05); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
+    .p-cap { display: block; text-align: center; font-size: 8px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: var(--p-dim); margin-top: 3px; }
+    .p-inst--live .p-cap { color: var(--lit); text-shadow: 0 0 8px currentColor; }
+    svg.p-svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+    .m-face { fill: var(--p-glass); stroke: rgba(0,0,0,.5); }
+    .pan--console .m-face { fill: none; stroke: none; }
+    .m-tick { stroke: color-mix(in srgb, var(--p-glass-ink) 45%, transparent); stroke-width: 1; }
+    .m-tick--maj { stroke: var(--p-glass-ink); stroke-width: 1.6; }
+    .m-lab { fill: var(--p-glass-ink); font-family: 'Share Tech Mono', monospace; font-size: 7.5px; text-anchor: middle; }
+    .m-needle { stroke: #C2352A; stroke-width: 2; stroke-linecap: round; }
+    .m-hub { fill: #8E2B22; }
+    .pan--console .m-needle { stroke: #F2F7FF; stroke-width: 1.3; stroke-linecap: butt; stroke-dasharray: 0 26 20; filter: drop-shadow(0 0 4px var(--p-run)); }
+    .pan--console .m-hub { display: none; }
+    .m-arc-track { fill: none; stroke: rgba(226,236,255,.10); stroke-width: 3; display: none; }
+    .m-arc { fill: none; stroke: var(--p-run); stroke-width: 3; stroke-linecap: round; display: none; filter: drop-shadow(0 0 5px rgba(127,168,255,.8)); }
+    .pan--console .m-arc-track, .pan--console .m-arc { display: block; }
+    .m-nosig { fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent); font-family: 'Share Tech Mono', monospace; font-size: 7px; letter-spacing: .2em; text-anchor: middle; visibility: hidden; }
+    .p-inst--nosig .m-nosig { visibility: visible; }
+    .p-inst--nosig .m-needle { stroke: color-mix(in srgb, var(--p-glass-ink) 40%, transparent); filter: none; }
+    .p-inst--nosig .m-arc { display: none; }
+
+    /* ── Twin rate dials ──
+       The rate meter, split in two and mirrored: each dial owns one half of the same log scale and
+       they face each other across the centre gap. The half being read lights; the other rests with
+       its needle at its stop, because the reading is not in that range. Same rule the single face
+       already used for its two unit words — one live unit at a time, never two. */
+    .t-face { fill: var(--p-glass); stroke: rgba(0,0,0,.5); }
+    .pan--console .t-face { fill: none; stroke: none; }
+    .t-needle { stroke: #C2352A; stroke-width: 2; stroke-linecap: round; }
+    /* The beam shows the outer half of the needle. The dash figures are tied to the needle's
+       LENGTH — shorten the movement and a stale pattern leaves a stub, or nothing at all. */
+    .pan--console .t-needle { stroke: #F2F7FF; stroke-width: 1.4; stroke-linecap: butt; stroke-dasharray: 0 26 28; filter: drop-shadow(0 0 4px var(--p-run)); }
+    .t-hub { fill: #4A1A14; }
+    .pan--console .t-hub { display: none; }
+    .t-arc-track { fill: none; stroke: rgba(226,236,255,.10); stroke-width: 2.5; display: none; }
+    .t-arc { fill: none; stroke: var(--p-run); stroke-width: 2.5; stroke-linecap: round; display: none; filter: drop-shadow(0 0 5px rgba(127,168,255,.8)); }
+    .pan--console .t-arc-track { display: block; }
+    .pan--console .t-half--live .t-arc { display: block; }
+    .t-cap { fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent); font-family: 'Share Tech Mono', monospace; font-size: 8.5px; letter-spacing: .1em; text-anchor: middle; }
+    .t-cap--end { font-family: 'Rajdhani', sans-serif; font-weight: 600; font-size: 9px; letter-spacing: .14em; }
+    .t-half--live .t-cap { fill: #C2352A; }
+    .pan--console .t-half--live .t-cap { fill: var(--p-run); }
+    /* A resting needle is still a needle — a car cluster never hides one — but it must not compete
+       with the live half, so it drops to a whisper rather than disappearing. */
+    .t-half--rest .t-needle { opacity: .16; filter: none; }
+    /* The figure between the gauges — the one thing two needles cannot tell you. */
+    .t-read { fill: var(--lit); font-family: 'Share Tech Mono', monospace; font-size: 19px; text-anchor: middle; }
+    .t-read-unit { fill: color-mix(in srgb, var(--lit) 75%, transparent); font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: .12em; text-anchor: middle; }
+    .p-inst--nosig .t-read { fill: var(--p-dim); }
+    .p-inst--nosig .t-read-unit { fill: transparent; }
+
+    /* ══ STEP COUNTER ════════════════════════════════════════════════════════
+       Two mechanisms, one per idiom (Bryan's pick): the control room gets a Solari split-flap,
+       the console gets nixie tubes. Both are fixed-width — a mechanical counter does not grow a
+       digit — so leading positions go blank (an unlit tube, a blank leaf) rather than printing a
+       zero the job does not have.
+       Sizes come from --cw/--ch/--cf so the same mechanism can be dropped into a bigger window
+       later without a second copy of the CSS. */
+    .p-stepwin { position: relative; --cw: 34px; --ch: 54px; --cf: 31px; padding: 6px 0 2px; }
+    .p-rack { display: flex; justify-content: center; gap: 4px; }
+    .p-stepna {
+      position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+      font-family: 'Share Tech Mono', monospace; font-size: 26px; color: var(--p-dim);
+    }
+    /* No step data is a real state, and a numeral mechanism cannot spell it — so the mechanism
+       blanks out and the window says so in words. Never a fabricated 0. */
+    .p-stepwin--na .p-rack { visibility: hidden; }
+    .p-stepwin--na .p-stepna { display: flex; }
+
+    /* ── Split-flap (P1) ── */
+    .fl { position: relative; width: var(--cw); height: var(--ch); perspective: 200px; }
+    .fl-half { position: absolute; left: 0; right: 0; height: 50%; overflow: hidden;
+      background: linear-gradient(180deg, #22262A, #1A1D20); box-shadow: inset 0 0 0 1px rgba(0,0,0,.7); }
+    .fl-half--top { top: 0; border-radius: 4px 4px 0 0; }
+    .fl-half--bot { bottom: 0; border-radius: 0 0 4px 4px; background: linear-gradient(180deg, #191C1F, #24282C); }
+    .fl-txt { position: absolute; left: 0; width: 100%; height: var(--ch); line-height: var(--ch);
+      font-family: 'Share Tech Mono', monospace; font-size: var(--cf); color: #EDE7D8; text-align: center; }
+    .fl-half--top .fl-txt { top: 0; }
+    .fl-half--bot .fl-txt { bottom: 0; }
+    .fl::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.85); z-index: 6; }
+    .fl-leaf { position: absolute; left: 0; right: 0; height: 50%; overflow: hidden; z-index: 5; backface-visibility: hidden; }
+    .fl-leaf--down { top: 0; transform-origin: bottom center; animation: flapdown 150ms ease-in forwards; }
+    .fl-leaf--up { bottom: 0; transform-origin: top center; animation: flapup 170ms 140ms cubic-bezier(.3,1.5,.5,1) backwards; }
+    @keyframes flapdown { from { transform: rotateX(0deg); } to { transform: rotateX(-90deg); } }
+    @keyframes flapup { from { transform: rotateX(90deg); } to { transform: rotateX(0deg); } }
+
+    /* ── Nixie (P2) ── */
+    .nx { position: relative; width: var(--cw); height: var(--ch); border-radius: 8px 8px 5px 5px; overflow: hidden;
+      background:
+        radial-gradient(ellipse 70% 40% at 50% 8%, rgba(255,255,255,.12), transparent 70%),
+        linear-gradient(105deg, rgba(255,255,255,.07) 0 12%, rgba(255,255,255,.02) 26%, rgba(0,0,0,.35) 60%, rgba(255,255,255,.04) 92%),
+        radial-gradient(ellipse at 50% 120%, rgba(127,168,255,.16), transparent 62%),
+        #070A10;
+      box-shadow: inset 0 0 10px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.05); }
+    .nx::before { content: ''; position: absolute; inset: 5px 4px 8px; z-index: 3; pointer-events: none;
+      background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 4px),
+                        repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 4px); }
+    .nx::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 5px; z-index: 4;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.5)); }
+    .nx-d { position: absolute; inset: 0 0 5px; display: flex; align-items: center; justify-content: center;
+      font-family: 'Share Tech Mono', monospace; font-size: var(--cf); line-height: 1;
+      color: rgba(160,190,255,.055); transition: color 260ms ease, text-shadow 260ms ease; }
+    .nx-d--on { color: #CFE0FF; text-shadow: 0 0 6px #7FA8FF, 0 0 16px rgba(127,168,255,.7), 0 0 30px rgba(127,168,255,.4); }
+    .nx-d--strike { animation: nxstrike 420ms ease-out; }
+    @keyframes nxstrike { 0% { opacity: .25; } 30% { opacity: 1; filter: brightness(1.5); } 100% { opacity: 1; filter: brightness(1); } }
+
+    /* Digital counter window */
+    .p-count { background: #0B0D0F; border: 1px solid rgba(0,0,0,.6); border-radius: 2px; padding: 4px 7px; box-shadow: 0 1px 4px rgba(0,0,0,.7) inset; text-align: center; }
+    .pan--console .p-count { background: rgba(0,0,0,.32); border-radius: 8px; border-color: rgba(255,255,255,.05); }
+    .p-count-val { font-family: 'Share Tech Mono', monospace; font-size: 15px; color: var(--lit); text-shadow: 0 0 7px color-mix(in srgb, var(--lit) 55%, transparent); }
+    .p-count-val--dim { color: var(--p-dim); text-shadow: none; }
+    .p-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+    .p-counts .p-cap { margin-top: 2px; }
+
+    /* Recorder: the rate, drawn on a moving chart */
+    .p-chart { background: var(--p-well); border: 1px solid rgba(0,0,0,.55); border-radius: 3px; padding: 6px 8px 4px; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.6) inset; }
+    .pan--console .p-chart { border-radius: 10px; border-color: rgba(255,255,255,.05); box-shadow: none; }
+    .c-grid { stroke: color-mix(in srgb, var(--p-dim) 30%, transparent); stroke-width: .8; }
+    .c-line { fill: none; stroke: var(--lit); stroke-width: 1.5; stroke-linejoin: round; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--lit) 60%, transparent)); }
+    .c-fill { fill: color-mix(in srgb, var(--lit) 12%, transparent); }
+    .c-pen { fill: #F2F7FF; }
+
+    /* ── LED bulb banks ──
+       Real bulbs in real sockets: a dark glass dome in a bezel when cold, a lit filament with a
+       specular highlight and a halo on the panel when hot. One bank per progress that actually
+       exists — step progress within the current node, and workflow progress across a batch. The
+       workflow bank has one bulb per image and only exists when the relay reports a total, so the
+       count of sockets is itself a real number, never a guess. */
+    .p-leds { margin-bottom: 10px; }
+    .p-led-row { display: flex; align-items: center; gap: 9px; padding: 4px 2px; }
+    .p-led-row--off { display: none; }
+    .p-led-cap { flex: 0 0 74px; font-size: 8px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--p-dim); }
+    .p-led-row--live .p-led-cap { color: var(--lit); }
+    .p-bulbs { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; }
+    .p-bulb {
+      position: relative; flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1; max-width: 16px;
+      transition: background 260ms ease, box-shadow 260ms ease;
+    }
+
+    /* ── P1 · 1960s indicator lamps ──
+       A tinted glass dome screwed into a chromed collar, sitting in a punched strip. Cold, it is
+       still visibly amber glass, not a black hole — that is what a real panel looks like with the
+       power off. Hot, the filament blooms and the glass hazes around it, and there is a trace of
+       mains flicker so a lit bank never looks like a flat graphic. */
+    .pan--room .p-bulbs {
+      padding: 4px 6px; border-radius: 3px; background: linear-gradient(180deg, #1A1D1F, #23272A);
+      box-shadow: inset 0 2px 5px rgba(0,0,0,.75), 0 1px 0 rgba(255,255,255,.06);
+    }
+    .pan--room .p-bulb {
+      border-radius: 50%;
+      background: radial-gradient(circle at 36% 28%, rgba(255,236,196,.16), rgba(150,110,55,.10) 52%, rgba(20,14,6,.85) 100%);
+      box-shadow:
+        0 0 0 1.5px #575D63,            /* chromed collar */
+        0 0 0 2.5px #24282B,            /* shadow under the collar */
+        inset 0 -1px 2px rgba(0,0,0,.6);
+    }
+    /* Specular pip on the glass — the giveaway that it is a dome and not a disc. */
+    .pan--room .p-bulb::before {
+      content: ''; position: absolute; left: 22%; top: 16%; width: 30%; height: 24%;
+      border-radius: 50%; background: rgba(255,255,255,.30); filter: blur(.4px);
+    }
+    .pan--room .p-bulb--on {
+      background: radial-gradient(circle at 38% 32%, #FFF8E2 10%, #FFD277 30%, var(--lit) 58%, #7A3F03 100%);
+      box-shadow:
+        0 0 0 1.5px #6B7176, 0 0 0 2.5px #24282B,
+        0 0 10px color-mix(in srgb, var(--lit) 85%, transparent),
+        0 0 22px color-mix(in srgb, var(--lit) 45%, transparent);
+      animation: mains 3.1s ease-in-out infinite;
+    }
+    .pan--room .p-bulb--on::before { background: rgba(255,255,255,.6); }
+    /* Filament, only visible when hot. */
+    .pan--room .p-bulb--on::after {
+      content: ''; position: absolute; left: 30%; right: 30%; top: 52%; height: 1.5px;
+      border-radius: 1px; background: #FFF6DC; box-shadow: 0 0 4px #FFE9B0;
+    }
+    /* Uneven mains hum: neighbouring bulbs are deliberately out of phase. */
+    @keyframes mains { 0%, 100% { filter: brightness(1); } 44% { filter: brightness(.94); } 72% { filter: brightness(1.03); } }
+    .pan--room .p-bulb:nth-child(3n) { animation-delay: -1.1s; }
+    .pan--room .p-bulb:nth-child(3n+1) { animation-delay: -2.3s; }
+    /* Filament strike: an incandescent takes a moment to come up, and overshoots on the way. */
+    .pan--room .p-bulb--strike { animation: strike 420ms ease-out; }
+    @keyframes strike {
+      0% { filter: brightness(.35); }
+      22% { filter: brightness(2.5); }
+      55% { filter: brightness(1.4); }
+      100% { filter: brightness(1); }
+    }
+
+    /* ── P2 · modern emitters ──
+       Surface-mount, not screwed in: a rounded-square die with an even face, a hard bright core and
+       a clean halo. No filament, no flicker, no warm-up — it is on the frame it is told to be. */
+    .pan--console .p-bulb {
+      border-radius: 4px; max-width: 15px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.015));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    }
+    .pan--console .p-bulb--on {
+      background: radial-gradient(circle at 50% 45%, #FFFFFF 14%, var(--lit) 52%, color-mix(in srgb, var(--lit) 55%, #000) 100%);
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--lit) 60%, transparent),
+        0 0 8px color-mix(in srgb, var(--lit) 80%, transparent),
+        0 0 20px color-mix(in srgb, var(--lit) 40%, transparent);
+    }
+    .pan--console .p-bulb--strike { animation: ledsnap 160ms ease-out; }
+    @keyframes ledsnap { 0% { filter: brightness(1.9); } 100% { filter: brightness(1); } }
+    .p-led-txt { font-family: 'Share Tech Mono', monospace; font-size: 10.5px; color: var(--p-dim); flex: none; min-width: 96px; text-align: right; }
+    .p-led-row--live .p-led-txt { color: var(--lit); }
+
+    /* Identity plate + bottom rail */
+    .p-plate { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 16px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,.5); box-shadow: 0 -1px 0 rgba(255,255,255,.06) inset; }
+    .p-plate-row { min-width: 0; }
+    .p-plate-row--off { visibility: hidden; }
+    .p-plate-lab { display: block; font-size: 8px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--p-dim); }
+    .p-plate-val { display: block; font-family: 'Share Tech Mono', monospace; font-size: 11.5px; color: var(--p-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .p-foot { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+    .p-rail { position: relative; flex: 1 1 auto; height: 8px; background: #0A0C0E; border: 1px solid rgba(0,0,0,.6); border-radius: 2px; overflow: hidden; box-shadow: inset 0 1px 4px rgba(0,0,0,.8); }
+    .pan--console .p-rail { height: 4px; border: none; border-radius: 999px; background: rgba(255,255,255,.06); box-shadow: none; }
+    .p-rail-fill { position: absolute; inset: 0 auto 0 0; width: 0%; background: linear-gradient(180deg, color-mix(in srgb, var(--lit) 80%, white), var(--lit)); box-shadow: 0 0 10px var(--lit); transition: width .35s ease; }
+    .p-foot-txt { font-family: 'Share Tech Mono', monospace; font-size: 10.5px; color: var(--p-dim); flex: none; }
+    .p-foot-pct { font-family: 'Share Tech Mono', monospace; font-size: 10.5px; color: var(--lit); flex: none; min-width: 36px; text-align: right; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .p-tile--new, .p-bulb--strike, .pan--room .p-bulb--on,
+      .fl-leaf--down, .fl-leaf--up, .nx-d--strike { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+    </div>
+    <div class="mock-head">
+      Reactor panel &mdash; <b>P1 control room</b> &middot; <b>P2 reactor console</b>
+      &nbsp;&nbsp;
+      <select id="facing-select" style="font:inherit;letter-spacing:.14em;background:#22262A;color:#CFC9BA;border:1px solid #0A0C0E;border-radius:3px;padding:2px 6px;">
+        <option value="in" selected>Dials open inward (facing each other) — picked</option>
+        <option value="out">Dials open outward (back to back)</option>
+      </select>
+    </div>
+    <div class="mock-sub">Same panel, two idioms. Every lamp and meter is driven by real collector data; unlit means "not true", never "no room left".</div>
+    <div id="cards"></div>
+  </div>
+
+  <script>
+  (function () {
+    const SVG = 'http://www.w3.org/2000/svg';
+    // 'in'  = pivots at the outer edges, arcs closing toward the middle (facing each other).
+    // 'out' = pivots inboard, arcs thrown to the outer edges (back to back).
+    // Bryan picked 'in' on 2026-08-13 — the two rims close around the readout like brackets.
+    let FACING = 'in';
+    const sv = (t, a) => { const e = document.createElementNS(SVG, t); for (const k in (a||{})) e.setAttribute(k, a[k]); return e; };
+    const dv = (c, t) => { const e = document.createElement('div'); e.className = c; if (t != null) e.textContent = t; return e; };
+    const sp = (c, t) => { const e = document.createElement('span'); e.className = c; if (t != null) e.textContent = t; return e; };
+
+    const fmtSec = (s) => {
+      if (s == null || !Number.isFinite(s)) return '--';
+      if (s < 60) return `${s.toFixed(1)}s`;
+      const m = Math.floor(s / 60), r = Math.round(s % 60);
+      return m < 60 ? `${m}m${r}s` : `${Math.floor(m / 60)}h${m % 60}m`;
+    };
+    const fmtRate = (v) => (v == null || !Number.isFinite(v) || v <= 0 ? '--' : v >= 1 ? `${v.toFixed(2)}` : `${(1 / v).toFixed(2)}`);
+    const rateUnit = (v) => (v == null || v <= 0 ? '' : v >= 1 ? 'it/s' : 's/it');
+
+    const SWEEP = 100;
+    const FACES = {
+      sampling: { min: -Math.log10(20), max: Math.log10(20), marks: [[1/20,'20'],[1/10,''],[1/5,'5'],[1/2,'2'],[1,'1'],[2,'2'],[5,'5'],[10,''],[20,'20']] },
+      training: { min: -Math.log10(60), max: 0, marks: [[1/60,'60'],[1/30,''],[1/20,'20'],[1/10,'10'],[1/5,'5'],[1/2,'2'],[1,'1']] },
+      pct: { linear: true, marks: [[0,'0'],[.25,''],[.5,'50'],[.75,''],[1,'100']] },
+    };
+    const facePos = (f, v) => (f.linear ? Math.max(0, Math.min(1, v))
+      : Math.max(0, Math.min(1, (Math.log10(v) - f.min) / (f.max - f.min))));
+
+    // ── A small panel meter: ivory face + needle in P1, lit arc in P2. One DOM, both idioms. ──
+    function meter(faceName) {
+      const f = FACES[faceName];
+      const svg = sv('svg', { viewBox: '0 0 120 62', class: 'p-svg' });
+      const CX = 60, CY = 64, R = 40;
+      const rad = (a) => ((a - 90) * Math.PI) / 180;
+      const at = (a, r) => [CX + r * Math.cos(rad(a)), CY + r * Math.sin(rad(a))];
+      svg.appendChild(sv('rect', { x: 1, y: 1, width: 118, height: 60, rx: 3, class: 'm-face' }));
+      for (const [v, label] of f.marks) {
+        const a = -SWEEP / 2 + facePos(f, v) * SWEEP;
+        const [x1, y1] = at(a, R), [x2, y2] = at(a, R + (label ? 7 : 4));
+        svg.appendChild(sv('line', { x1, y1, x2, y2, class: `m-tick${label ? ' m-tick--maj' : ''}` }));
+        if (label) {
+          const [lx, ly] = at(a, R + 14);
+          const t = sv('text', { x: lx, y: ly + 2.5, class: 'm-lab' });
+          t.textContent = label;
+          svg.appendChild(t);
+        }
+      }
+      const [ax0, ay0] = at(-SWEEP / 2, R - 5), [ax1, ay1] = at(SWEEP / 2, R - 5);
+      const arcD = `M ${ax0.toFixed(2)} ${ay0.toFixed(2)} A ${R - 5} ${R - 5} 0 0 1 ${ax1.toFixed(2)} ${ay1.toFixed(2)}`;
+      svg.appendChild(sv('path', { d: arcD, class: 'm-arc-track', pathLength: 1, 'stroke-dasharray': '1 1' }));
+      const arc = sv('path', { d: arcD, class: 'm-arc', pathLength: 1, 'stroke-dasharray': '0 1' });
+      const needle = sv('line', { x1: CX, y1: CY, x2: CX, y2: CY - (R + 2), class: 'm-needle' });
+      const hub = sv('circle', { cx: CX, cy: CY, r: 5, class: 'm-hub' });
+      const ns = sv('text', { x: 60, y: 40, class: 'm-nosig' });
+      ns.textContent = 'NO SIGNAL';
+      svg.append(arc, needle, hub, ns);
+
+      // Needle ballistics, one integrator per meter — a panel meter that snaps looks like a bar.
+      let target = -SWEEP / 2, angle = target, vel = 0;
+      (function tick() {
+        const err = target - angle;
+        vel += err * 0.09 - vel * 0.44;
+        angle += vel;
+        needle.setAttribute('transform', `rotate(${angle.toFixed(2)} ${CX} ${CY})`);
+        arc.setAttribute('stroke-dasharray', `${((angle + SWEEP / 2) / SWEEP).toFixed(4)} 1`);
+        requestAnimationFrame(tick);
+      })();
+
+      return {
+        svg,
+        set(v) {
+          const live = v != null && Number.isFinite(v) && (f.linear ? v >= 0 : v > 0);
+          target = live ? -SWEEP / 2 + facePos(f, v) * SWEEP : -SWEEP / 2;
+          return live;
+        },
+      };
+    }
+
+    // ── Twin dials: one log scale, split at a midpoint, drawn as a mirrored pair ──────────────
+    // Sampling splits at 1:1 — the same crossover the app already flips its printed unit at, so
+    // the left dial is the s/it half and the right the it/s half. Training has no fast half at
+    // all (nothing Bryan trains runs above 1 it/s), so it splits coarse/fine at 6 s/it instead:
+    // the left dial covers the long tail out to 60 s/it, the right expands the range every real
+    // run actually sits in.
+    // NO NUMBERS ON THE ARCS, deliberately: a fuel gauge has none either — it has ticks, two end
+    // letters and a glyph, and you read the tank from where the needle sits. The exact figure lives
+    // in the tell-tale stack between the two dials, which is where a modern cluster puts it. Long
+    // ticks mark the same values the old face labelled, so the graduation is unchanged; only the
+    // printing is gone.
+    const TWIN = {
+      sampling: {
+        left: { min: 1/20, max: 1, cap: 's/it', endSlow: 'SLOW', endFast: '1:1',
+          marks: [[1/20,1],[1/10,1],[1/7,0],[1/5,1],[1/3,0],[1/2,1],[1/1.5,0],[1,1]] },
+        right: { min: 1, max: 20, cap: 'it/s', endSlow: '1:1', endFast: 'FAST',
+          marks: [[1,1],[1.5,0],[2,1],[3,0],[5,1],[7,0],[10,1],[20,1]] },
+      },
+      training: {
+        left: { min: 1/60, max: 1/6, cap: 'coarse', endSlow: 'SLOW', endFast: '6s',
+          marks: [[1/60,1],[1/40,0],[1/30,1],[1/20,1],[1/15,0],[1/12,1],[1/8,0],[1/6,1]] },
+        right: { min: 1/6, max: 1, cap: 'fine', endSlow: '6s', endFast: 'FAST',
+          marks: [[1/6,1],[1/5,0],[1/4,1],[1/3,1],[1/2,1],[1/1.5,0],[1,1]] },
+      },
+    };
+
+    function twinDial(kind) {
+      const spec = TWIN[kind] ?? TWIN.sampling;
+      // overflow hidden, unlike the other instruments: the pivots sit BELOW the face so the hubs are
+      // hidden behind its bottom edge, exactly as a cluster hides them behind the bezel. Two red
+      // dots sitting on the dial were the giveaway that these were two little meters, not one
+      // cluster with two movements.
+      const svg = sv('svg', { viewBox: '0 0 240 120', class: 'p-svg', style: 'overflow:hidden' });
+      const halves = [];
+
+      // Fuel-and-temp geometry: the two pivots sit inboard at the bottom, the graduated arcs are on
+      // the OUTER sides, and both needles read UP for more — the rule every driver already knows.
+      // That replaces this project's old "further right is faster": on a mirrored pair, right means
+      // opposite things on the two dials, and up does not.
+      // A 90-degree quadrant each, CENTRED ON THE HORIZONTAL: the left movement sweeps from
+      // down-left through straight-left to up-left, the right one mirrors it. That puts each pivot
+      // on the instrument's vertical centreline and points the two arcs away from each other —
+      // back to back, with the tell-tale column between them.
+      const OUT = 135, IN = 45; // degrees from vertical: slow stop (down-outer), fast stop (up-outer)
+      // ONE face behind both gauges, not two — a car cluster is a single panel with two movements
+      // printed on it, and two abutting rectangles read as two instruments that happen to touch.
+      svg.appendChild(sv('rect', { x: 2, y: 2, width: 236, height: 116, rx: 18, class: 't-face' }));
+      for (const side of ['left', 'right']) {
+        const s = spec[side];
+        const mirror = side === 'right';
+        // Pivot on the vertical centreline, quadrant centred on the horizontal. FACING decides which
+        // way the pair opens: 'out' puts the pivots inboard and throws the arcs to the outer edges
+        // (back to back); 'in' puts the pivots at the outer edges and turns both arcs toward the
+        // middle, so the two rims close around the readout like brackets.
+        const inward = FACING === 'in';
+        const px = inward ? (mirror ? 216 : 24) : (mirror ? 154 : 86);
+        const py = 60;
+        const R = 52;
+        const g = sv('g', { class: `t-half t-half--${side}` });
+        // Which side of its pivot this movement sweeps. Flipping this one number is the whole
+        // difference between the pair opening outward and closing inward.
+        const sign = (mirror ? 1 : -1) * (inward ? -1 : 1);
+        const ang = (t) => sign * (OUT - t * (OUT - IN));
+        const at = (a, r) => [px + r * Math.sin((a * Math.PI) / 180), py - r * Math.cos((a * Math.PI) / 180)];
+        const tpos = (v) => Math.max(0, Math.min(1, (Math.log10(v) - Math.log10(s.min)) / (Math.log10(s.max) - Math.log10(s.min))));
+
+        for (const [v, major] of s.marks) {
+          const a = ang(tpos(v));
+          const [x1, y1] = at(a, R), [x2, y2] = at(a, R + (major ? 9 : 5));
+          g.appendChild(sv('line', { x1, y1, x2, y2, class: `m-tick${major ? ' m-tick--maj' : ''}` }));
+        }
+        // The console's lit bar is the OUTERMOST ring on the instrument — outside the needle,
+        // outside the graduations — so the two quadrants read as the rim of a round gauge rather
+        // than as a second scale drawn among the ticks.
+        const RA = R + 18;
+        const [ax0, ay0] = at(ang(0), RA), [ax1, ay1] = at(ang(1), RA);
+        const d = `M ${ax0.toFixed(2)} ${ay0.toFixed(2)} A ${RA} ${RA} 0 0 ${mirror ? 1 : 0} ${ax1.toFixed(2)} ${ay1.toFixed(2)}`;
+        g.appendChild(sv('path', { d, class: 't-arc-track', pathLength: 1, 'stroke-dasharray': '1 1' }));
+        const arc = sv('path', { d, class: 't-arc', pathLength: 1, 'stroke-dasharray': '0 1' });
+        const needle = sv('line', { x1: px, y1: py, x2: px, y2: py - (R + 2), class: 't-needle' });
+        // A small dark boss, not a red button: with the pivots out on the face, a fat coloured hub
+        // is the biggest thing on the instrument and it carries no reading at all.
+        const hub = sv('circle', { cx: px, cy: py, r: 3.4, class: 't-hub' });
+        // E/F and C/H: the two end words, parked at the stops. Positions are fixed rather than
+        // derived from the sweep — at the bottom stop a radial position lands outside the face and
+        // clips, and this is the one label on the instrument that must never be half-visible.
+        // End words just inside each stop, rotated a few degrees into the sweep so they never land
+        // on the graduation that marks the same stop — placed exactly on it, the tick draws
+        // straight through the word.
+        // Outside the rim when the pair opens outward — the corners the arc leaves free. Facing in,
+        // that space belongs to the readout, so the words tuck inside the arc instead. Never in the
+        // 9px band between ticks and rim: a word there collides with both.
+        const rLab = inward ? R - 17 : R + 29;
+        const [sx, sy] = at(ang(0) + sign * -7, rLab), [fx, fy] = at(ang(1) + sign * 7, rLab);
+        const capSlow = sv('text', { x: sx, y: sy + 3, class: 't-cap t-cap--end' });
+        capSlow.textContent = s.endSlow;
+        const capFast = sv('text', { x: fx, y: fy + 3, class: 't-cap t-cap--end' });
+        capFast.textContent = s.endFast;
+        // No unit word on the face: the figure between the gauges prints the unit of whichever half
+        // is live, so a unit here would be a second, sometimes-wrong claim.
+        g.append(arc, needle, hub, capSlow, capFast);
+        svg.appendChild(g);
+
+        const rest = ang(0);
+        const half = { g, arc, needle, spec: s, tpos, ang, px, py, target: rest, angle: rest, vel: 0, rest, mirror, span: OUT - IN, out: sign * OUT };
+        halves.push(half);
+      }
+
+      // The tell-tale stack between the gauges: the exact figure, which is the one thing a pair of
+      // needles cannot give you. Same 1:1 flip the rest of the app uses.
+      const readVal = sv('text', { x: 120, y: 57, class: 't-read' });
+      const readUnit = sv('text', { x: 120, y: 71, class: 't-read-unit' });
+      const ns = sv('text', { x: 120, y: 89, class: 'm-nosig' });
+      ns.textContent = 'NO RATE';
+      svg.append(readVal, readUnit, ns);
+
+      (function tick() {
+        for (const h of halves) {
+          const err = h.target - h.angle;
+          h.vel += err * 0.09 - h.vel * 0.44;
+          h.angle += h.vel;
+          h.needle.setAttribute('transform', `rotate(${h.angle.toFixed(2)} ${h.px} ${h.py})`);
+          // The lit arc grows from this dial's own bottom stop up to the needle.
+          const t = Math.abs(h.angle - h.out) / h.span;
+          h.arc.setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, t)).toFixed(4)} 1`);
+        }
+        requestAnimationFrame(tick);
+      })();
+
+      return {
+        svg,
+        set(v) {
+          const live = v != null && Number.isFinite(v) && v > 0;
+          for (const h of halves) {
+            // A dial claims the reading only when the value falls in ITS half of the scale; the
+            // other one drops to its stop and goes dim, exactly as the single face dimmed the unit
+            // word it was not reading. Two lit dials would be two claims about one rate.
+            const mine = live && (h.mirror ? v >= h.spec.min : v <= h.spec.max);
+            h.target = mine ? h.ang(h.tpos(v)) : h.rest;
+            h.g.classList.toggle('t-half--live', !!mine);
+            h.g.classList.toggle('t-half--rest', !mine);
+          }
+          readVal.textContent = live ? fmtRate(v) : '--';
+          readUnit.textContent = live ? rateUnit(v) : '';
+          return live;
+        },
+      };
+    }
+
+    function twinInstrument(label, kind) {
+      const box = dv('p-inst');
+      const t = twinDial(kind);
+      box.append(t.svg, sp('p-cap', label));
+      return { box, m: t };
+    }
+
+    function instrument(label, faceName) {
+      const box = dv('p-inst');
+      const m = meter(faceName);
+      box.append(m.svg, sp('p-cap', label));
+      return { box, m };
+    }
+
+    // ── Step counter mechanisms ──────────────────────────────────────────────
+    // Split-flap for the control room, nixie for the console. Same interface, so the panel does
+    // not know or care which one it is holding: setValue(n) / setNA().
+    function flapCounter(width) {
+      const rack = dv('p-rack');
+      const cards = [];
+      for (let i = 0; i < width; i++) {
+        const card = dv('fl');
+        const top = dv('fl-half fl-half--top'), bot = dv('fl-half fl-half--bot');
+        const topT = dv('fl-txt', ' '), botT = dv('fl-txt', ' ');
+        top.appendChild(topT); bot.appendChild(botT);
+        card.append(top, bot);
+        rack.appendChild(card);
+        cards.push({ card, topT, botT, cur: ' ' });
+      }
+      return {
+        rack,
+        set(text) {
+          // Leading ZEROS, not blanks: a mechanical counter has a wheel in every position and it is
+          // always showing something. Blank leaves and dead tubes read as a broken display.
+          const s = String(text).padStart(width, '0').slice(-width);
+          cards.forEach((c, i) => {
+            const ch = s[i];
+            if (ch === c.cur) return;
+            const old = c.cur;
+            c.cur = ch;
+            // The bottom leaf keeps the OLD digit until the falling leaf hides it — swapping it
+            // early is what makes a fake flip look fake.
+            c.topT.textContent = ch;
+            const down = dv('fl-leaf fl-leaf--down'), dInner = dv('fl-half fl-half--top');
+            dInner.appendChild(dv('fl-txt', old)); down.appendChild(dInner);
+            const up = dv('fl-leaf fl-leaf--up'), uInner = dv('fl-half fl-half--bot');
+            uInner.appendChild(dv('fl-txt', ch)); up.appendChild(uInner);
+            c.card.append(down, up);
+            setTimeout(() => { c.botT.textContent = ch; down.remove(); }, 150);
+            setTimeout(() => up.remove(), 330);
+          });
+        },
+      };
+    }
+
+    function nixieCounter(width) {
+      const rack = dv('p-rack');
+      const tubes = [];
+      for (let i = 0; i < width; i++) {
+        const tube = dv('nx');
+        const digits = [];
+        for (let d = 0; d < 10; d++) {
+          const el = dv('nx-d', String(d));
+          // Cathodes sit at different depths in a real tube — without the offsets the unlit stack
+          // reads as ten copies of one glyph instead of wire numerals behind each other.
+          el.style.transform = `scale(${(0.94 + d * 0.006).toFixed(3)}) translateX(${(d % 3 - 1) * 0.6}px)`;
+          tube.appendChild(el);
+          digits.push(el);
+        }
+        rack.appendChild(tube);
+        tubes.push({ digits, on: -1 });
+      }
+      return {
+        rack,
+        set(text) {
+          // Leading ZEROS, not blanks: a mechanical counter has a wheel in every position and it is
+          // always showing something. Blank leaves and dead tubes read as a broken display.
+          const s = String(text).padStart(width, '0').slice(-width);
+          tubes.forEach((t, i) => {
+            const ch = s[i];
+            const d = ch >= '0' && ch <= '9' ? Number(ch) : -1;
+            if (d === t.on) return;
+            t.digits.forEach((el, k) => {
+              const on = k === d;
+              el.classList.toggle('nx-d--on', on);
+              if (on) { el.classList.remove('nx-d--strike'); void el.offsetWidth; el.classList.add('nx-d--strike'); }
+            });
+            t.on = d;
+          });
+        },
+      };
+    }
+
+    function stepCounter(idiom, width) {
+      const win = dv('p-stepwin');
+      const mech = idiom === 'room' ? flapCounter(width) : nixieCounter(width);
+      const na = dv('p-stepna', 'N/A');
+      win.append(mech.rack, na);
+      return {
+        win,
+        setValue(n) { win.classList.remove('p-stepwin--na'); mech.set(n); },
+        // No step data still blanks the mechanism and prints the words — zeros are for positions a
+        // real number does not reach, never for "we do not know".
+        setNA() { win.classList.add('p-stepwin--na'); },
+      };
+    }
+
+    function counter(label) {
+      const wrap = dv('');
+      const box = dv('p-count');
+      const val = sp('p-count-val', '--');
+      box.appendChild(val);
+      wrap.append(box, sp('p-cap', label));
+      return { wrap, val, set(v, live) { val.textContent = v; val.classList.toggle('p-count-val--dim', !live); } };
+    }
+
+    // ── Recorder ─────────────────────────────────────────────────────────────
+    function chart(faceName) {
+      const f = FACES[faceName];
+      const box = dv('p-chart');
+      const svg = sv('svg', { viewBox: '0 0 300 46', preserveAspectRatio: 'none', class: 'p-svg' });
+      for (let i = 1; i < 6; i++) svg.appendChild(sv('line', { x1: i * 50, y1: 2, x2: i * 50, y2: 44, class: 'c-grid' }));
+      for (let i = 1; i < 3; i++) svg.appendChild(sv('line', { x1: 0, y1: i * 15, x2: 300, y2: i * 15, class: 'c-grid' }));
+      const fill = sv('path', { d: '', class: 'c-fill' });
+      const line = sv('path', { d: '', class: 'c-line' });
+      const pen = sv('circle', { r: 2.4, cx: -9, cy: -9, class: 'c-pen' });
+      svg.append(fill, line, pen);
+      box.append(svg, sp('p-cap', 'Rate recorder · 60 s'));
+      const hist = [];
+      return {
+        box,
+        push(v) {
+          hist.push(v != null && Number.isFinite(v) && v > 0 ? v : null);
+          while (hist.length > 120) hist.shift();
+          const pts = hist.map((x, i) => (x == null ? null : { x: 300 - (hist.length - 1 - i) * 2.5, y: 44 - facePos(f, x) * 40 })).filter(Boolean);
+          if (pts.length > 1) {
+            const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+            line.setAttribute('d', d);
+            fill.setAttribute('d', `${d} L ${pts[pts.length - 1].x.toFixed(1)} 46 L ${pts[0].x.toFixed(1)} 46 Z`);
+            const last = pts[pts.length - 1];
+            pen.setAttribute('cx', last.x); pen.setAttribute('cy', last.y);
+            pen.style.visibility = hist[hist.length - 1] == null ? 'hidden' : '';
+          } else { line.setAttribute('d', ''); fill.setAttribute('d', ''); pen.style.visibility = 'hidden'; }
+        },
+      };
+    }
+
+    // ── The panel ────────────────────────────────────────────────────────────
+    // Eight annunciators, all real conditions. RELAY ABSENT only lights once a job has run 10s with
+    // no relay traffic — the same rule the app already uses before claiming a relay is missing.
+    const ANN = [
+      { key: 'run', text: 'Reactor Run', tone: 'run' },
+      { key: 'queue', text: 'Queued', tone: 'wait' },
+      { key: 'batch', text: 'Batch Run', tone: 'run' },
+      { key: 'nosteps', text: 'No Step Data', tone: 'wait' },
+      { key: 'relay', text: 'Relay Absent', tone: 'wait' },
+      { key: 'done', text: 'Cycle Done', tone: 'ok' },
+      { key: 'fault', text: 'Fault', tone: 'err' },
+      { key: 'offline', text: 'Offline', tone: 'err' },
+    ];
+
+    function buildPanel(host, idiom) {
+      const train = host.kind === 'aitoolkit';
+      const pan = dv(`pan pan--${idiom}`);
+      for (const c of ['tl', 'tr', 'bl', 'br']) pan.appendChild(dv(`p-screw p-screw--${c}`));
+
+      const head = dv('p-head');
+      const jewel = dv('p-jewel'), unit = sp('p-unit', train ? 'UNIT T-1' : 'UNIT G-1'),
+            name = sp('p-name', host.name), mode = sp('p-mode'), stat = sp('p-hstat');
+      head.append(jewel, unit, name, mode, stat);
+
+      const ann = dv('p-ann');
+      const tiles = {};
+      for (const a of ANN) {
+        const t = dv('p-tile', a.text);
+        t.style.setProperty('--tone', `var(--p-${a.tone})`);
+        ann.appendChild(t);
+        tiles[a.key] = { el: t, on: false };
+      }
+
+      const row = dv('p-row');
+      const iRate = twinInstrument(train ? 'Training Rate' : 'Sampling Rate', train ? 'training' : 'sampling');
+      iRate.box.style.flex = '2 1 0';
+      const iProg = instrument('Cycle Progress', 'pct');
+      // A trainer counts down through four digits; a sampler node rarely passes two. The mechanism
+      // is fixed-width like the real thing, so the width is chosen per kind rather than growing.
+      const iSteps = dv('p-inst');
+      const steps = stepCounter(idiom, train ? 4 : 2);
+      const stepsSub = sp('p-cap', 'Steps Left');
+      iSteps.append(steps.win, stepsSub);
+      row.append(iRate.box, iProg.box, iSteps);
+
+      const rec = chart(train ? 'training' : 'sampling');
+
+      const counts = dv('p-counts');
+      const cEta = counter('ETA'), cElapsed = counter('Elapsed'),
+            cExtra = counter(train ? 'Loss' : 'Batch ETA'), cQueue = counter('Queue');
+      counts.append(cEta.wrap, cElapsed.wrap, cExtra.wrap, cQueue.wrap);
+
+      // ── LED banks ──
+      // Row 1 is progress through the current node, always available when there are step numbers.
+      // Row 2 is the whole workflow — one bulb per image of a batch — and it only exists when the
+      // relay has told us the total. A trainer has one progress, not two, so it gets one bank.
+      const leds = dv('p-leds');
+      const ledBank = (label, n) => {
+        const row = dv('p-led-row');
+        const cap = dv('p-led-cap', label);
+        const bulbs = dv('p-bulbs');
+        const txt = sp('p-led-txt', '');
+        row.append(cap, bulbs, txt);
+        leds.appendChild(row);
+        const state = { count: 0, on: -1 };
+        return {
+          row, txt,
+          resize(count) {
+            if (state.count === count) return;
+            bulbs.replaceChildren();
+            for (let i = 0; i < count; i++) bulbs.appendChild(dv('p-bulb'));
+            state.count = count;
+            state.on = -1;
+          },
+          light(k, live) {
+            const kids = [...bulbs.children];
+            kids.forEach((b, i) => {
+              const on = i < k;
+              // Strike only the bulbs that just came on — a whole bank flashing on every repaint
+              // would be an animation of nothing.
+              if (on && i >= state.on && state.on >= 0) {
+                b.classList.remove('p-bulb--strike'); void b.offsetWidth; b.classList.add('p-bulb--strike');
+                // The strike has to be taken off again or it keeps overriding the steady state —
+                // in the control room that is the mains flicker, which would never run.
+                b.addEventListener('animationend', () => b.classList.remove('p-bulb--strike'), { once: true });
+              }
+              b.classList.toggle('p-bulb--on', on);
+            });
+            state.on = k;
+            row.classList.toggle('p-led-row--live', !!live);
+          },
+        };
+      };
+      const ledStep = ledBank(train ? 'Run Progress' : 'Step Progress', 20);
+      const ledFlow = ledBank('Workflow', 0);
+
+      const plate = dv('p-plate');
+      const pRow = (label) => {
+        const r = dv('p-plate-row');
+        const l = sp('p-plate-lab', label), v = sp('p-plate-val', '--');
+        r.append(l, v);
+        plate.appendChild(r);
+        return { r, l, v };
+      };
+      const pModel = pRow(train ? 'Base Model' : 'Model');
+      const pSize = pRow(train ? 'Resolution' : 'Size');
+      const pCount = pRow(train ? 'Rank' : 'Batch');
+      const pNode = pRow('Process');
+      pNode.r.style.gridColumn = '1 / -1';
+
+      // No progress bar along the bottom: the LED banks ARE the progress, and a sweeping bar under
+      // them was the same fact told twice in a weaker language. Step X / Y moved onto the bank it
+      // belongs to.
+      pan.append(head, ann, row, rec.box, counts, leds, plate);
+      return {
+        el: pan,
+        update(h) {
+          const j = h.job, online = h.status === 'online';
+          const running = !!j && !j.finished;
+          const hasSteps = !!j && Number.isFinite(j.maxSteps) && j.maxSteps > 0;
+          const done = hasSteps ? Math.min(j.maxSteps, j.step ?? 0) : null;
+          const ratio = hasSteps ? done / j.maxSteps : null;
+          const rate = running && Number.isFinite(j.stepsPerSec) && j.stepsPerSec > 0 ? j.stepsPerSec : null;
+
+          pan.classList.toggle('pan--run', running);
+          pan.classList.toggle('pan--ok', j?.finished === 'success');
+          pan.classList.toggle('pan--err', j?.finished === 'error' || !online);
+
+          mode.textContent = running ? (j.phase ?? 'RUN') : j?.finished ? (j.stateText ?? 'DONE') : online ? 'STANDBY' : '';
+          stat.textContent = h.status;
+
+          const state = {
+            run: running,
+            queue: !!h.queue,
+            batch: running && (j.passTotal ?? 0) > 1,
+            nosteps: running && !hasSteps,
+            relay: h.relay === false,
+            done: j?.finished === 'success',
+            fault: j?.finished === 'error',
+            offline: !online,
+          };
+          for (const a of ANN) {
+            const t = tiles[a.key], on = !!state[a.key];
+            if (on && !t.on) { t.el.classList.remove('p-tile--new'); void t.el.offsetWidth; t.el.classList.add('p-tile--new'); }
+            t.on = on;
+            t.el.classList.toggle('p-tile--on', on);
+          }
+
+          const rateLive = iRate.m.set(rate);
+          iRate.box.classList.toggle('p-inst--live', !!rate);
+          iRate.box.classList.toggle('p-inst--nosig', !rateLive);
+          const progLive = iProg.m.set(hasSteps ? ratio : null);
+          iProg.box.classList.toggle('p-inst--live', hasSteps);
+          iProg.box.classList.toggle('p-inst--nosig', !progLive);
+          if (hasSteps) steps.setValue(j.maxSteps - done); else steps.setNA();
+          iSteps.classList.toggle('p-inst--live', hasSteps);
+
+          rec.push(rate);
+
+          cEta.set(running && j.etaSec != null ? fmtSec(j.etaSec) : '--', running && j?.etaSec != null);
+          cElapsed.set(j?.elapsedSec != null ? fmtSec(j.elapsedSec) : '--', j?.elapsedSec != null);
+          if (train) cExtra.set(j?.loss != null ? j.loss.toFixed(4) : '--', j?.loss != null);
+          else cExtra.set(j?.jobEtaSec != null ? fmtSec(j.jobEtaSec) : '--', j?.jobEtaSec != null);
+          cQueue.set(h.queue != null ? String(h.queue) : '--', !!h.queue);
+
+          // Step bank: 20 bulbs across the current node's progress. No step numbers means no lit
+          // bulbs at all — a dark bank is the honest reading, the same as N/A on the counter.
+          ledStep.resize(20);
+          ledStep.light(hasSteps ? Math.round(ratio * 20) : 0, hasSteps);
+          ledStep.txt.textContent = hasSteps ? `${done}/${j.maxSteps} · ${Math.round(ratio * 100)}%`
+            : running ? 'no step data' : '--';
+
+          // Workflow bank: one bulb per image, lit as each lands. Sockets only exist when the
+          // relay has reported a total, so the bank's own size is a measured number.
+          const total = running ? j.passTotal ?? 0 : 0;
+          ledFlow.row.classList.toggle('p-led-row--off', !(total > 1));
+          if (total > 1) {
+            ledFlow.resize(Math.min(total, 40));
+            const pass = j.pass ?? 0;
+            ledFlow.light(Math.round((pass / total) * Math.min(total, 40)), true);
+            ledFlow.txt.textContent = `${pass} / ${total}`;
+          }
+
+          const setPlate = (p, v) => { p.r.classList.toggle('p-plate-row--off', v == null || v === ''); p.v.textContent = v ?? '--'; };
+          setPlate(pModel, j?.model);
+          setPlate(pSize, j?.size);
+          setPlate(pCount, train ? (j?.rank != null ? String(j.rank) : null) : (j?.frames ?? j?.batch) != null ? String(j?.frames ?? j?.batch) : null);
+          setPlate(pNode, !j ? (online ? 'Idle' : 'Unreachable') : j.finished ? (j.stateText ?? (j.finished === 'success' ? 'Finished' : 'Failed')) : j.nodeName ?? j.node ?? 'Running');
+
+        },
+      };
+    }
+
+    // ── Data ─────────────────────────────────────────────────────────────────
+    const HOSTS = [
+      {
+        name: 'New Main', kind: 'comfyui', status: 'online', queue: 2, relay: true,
+        job: {
+          step: 3, maxSteps: 8, stepsPerSec: 0.29, etaSec: 17, elapsedSec: 96, jobEtaSec: 640,
+          node: '9', nodeName: 'KSampler', pass: 5, passTotal: 28,
+          model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1,
+        },
+        tick(j, t) {
+          j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
+          if (j.step === 1) j.pass = (j.pass % j.passTotal) + 1;
+          j.stepsPerSec = (t % 34) < 30 ? 0.26 + 0.1 * Math.sin(t / 6) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.elapsedSec += 3.5;
+        },
+      },
+      {
+        name: 'AI-Toolkit', kind: 'aitoolkit', status: 'online', queue: 0, relay: null,
+        job: {
+          step: 2210, maxSteps: 6000, stepsPerSec: 0.39, etaSec: 9640, elapsedSec: 4210,
+          node: 'train', nodeName: 'w1f3y_h3_v1', phase: 'Training',
+          model: 'MiniMax-H3', size: '512/768/1024', rank: 16, loss: 0.0341,
+        },
+        tick(j, t) {
+          j.step += 1;
+          j.stepsPerSec = (t % 34) < 30 ? 1 / (2.4 + 0.6 * Math.sin(t / 9)) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.elapsedSec += 2.5;
+          j.loss = Math.max(0.005, j.loss + (Math.random() - 0.5) * 0.004);
+        },
+      },
+    ];
+
+    const cardsEl = document.getElementById('cards');
+    let built = [];
+    function buildRack() {
+      cardsEl.replaceChildren();
+      built = [];
+      for (const idiom of ['room', 'console']) {
+        for (const host of HOSTS) {
+          const h = { ...host, name: `${host.name} · ${idiom === 'room' ? 'P1 CONTROL ROOM' : 'P2 CONSOLE'}` };
+          const p = buildPanel(h, idiom);
+          cardsEl.appendChild(p.el);
+          built.push({ h, p, src: host });
+        }
+      }
+    }
+    buildRack();
+
+    // Which way the twin dials open. Rebuilding is fine here — it is a mock, and the choice is
+    // build-time geometry rather than a live setting.
+    document.getElementById('facing-select').addEventListener('change', (e) => {
+      FACING = e.target.value;
+      buildRack();
+    });
+
+    let t = 0;
+    setInterval(() => {
+      t += 0.5;
+      for (const host of HOSTS) host.tick(host.job, t);
+      for (const b of built) b.p.update({ ...b.h, job: b.src.job, relay: b.src.relay, queue: b.src.queue });
+    }, 500);
+  })();
+  </script>
+</body>
+</html>

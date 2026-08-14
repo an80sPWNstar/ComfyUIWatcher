@@ -65,6 +65,11 @@
   --radius-sm: 3px;
   --gap: 12px;
 
+  /* Rack column width, i.e. how many modules fit across the window. The top bar's SIZE control
+     rewrites this on <body> (see renderer.js): a wider setting means fewer, bigger modules. The
+     default is the narrowest width that still keeps both instruments side by side. */
+  --card-min: 430px;
+
   --font-legend: 'Rajdhani', 'Segoe UI Semibold', 'Segoe UI', sans-serif;
   --font-mono: 'Share Tech Mono', Consolas, 'Courier New', monospace;
   --text-glow-soft: 0 0 6px currentColor;
@@ -110,9 +115,17 @@ body {
   box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 4px 14px rgba(0, 0, 0, 0.5);
   -webkit-app-region: drag;
   user-select: none;
+  gap: 10px;
 }
 
+/* The chassis label gives way to the controls: it is the one thing in the strip that is decoration
+   (the window frame already carries the app name), and with three dropdowns the strip overflowed
+   at ~560px — title printed straight through the selects. */
 #topbar-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-legend);
   font-weight: 600;
   color: var(--legend);
@@ -139,9 +152,19 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto; /* controls never shrink; the title above yields instead */
 }
 
-#skin-select {
+/* Below this the label has nothing left to give — drop it and keep the strip usable. */
+@media (max-width: 580px) {
+  #topbar-title { display: none; }
+  #topbar { justify-content: flex-end; }
+}
+
+/* Every control strip dropdown, not one of them. #skin-select was styled by id and #kind-select
+   never was, so "Show" sat in the top bar as a raw blue Windows combobox next to an engraved one
+   (visible in Bryan's 2026-08-13 screenshot). Style the strip, and a new control inherits it. */
+#topbar-controls select {
   -webkit-app-region: no-drag;
   background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
   border: 1px solid #0A0C0E;
@@ -157,15 +180,15 @@ body {
   box-shadow: 0 1px 0 var(--bevel-hi) inset, 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-#skin-select:hover { color: var(--legend); }
+#topbar-controls select:hover { color: var(--legend); }
 
-#skin-select:focus-visible {
+#topbar-controls select:focus-visible {
   outline: 2px solid var(--lamp-run);
   outline-offset: 2px;
 }
 
 /* The dropdown list itself is drawn by the OS — give it readable colours in both skins. */
-#skin-select option {
+#topbar-controls select option {
   background: #1C1F23;
   color: #D8D2C4;
 }
@@ -208,21 +231,41 @@ body {
      863px module at the default 900x640, with its instruments sitting in a sea of faceplate.
      auto-fill keeps the tracks, so a card is always about as wide as it was designed to be and
      the empty part of the rack reads as an empty rack. */
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  /* The track minimum is the SIDE-BY-SIDE THRESHOLD, not the narrowest a card can be drawn.
+     Between ~330 and ~430px a card is wide enough to look like a full module but too narrow to
+     hold two wells abreast, so it stacked them and doubled in height — and a two-column rack in a
+     ~800px window landed squarely in that band. That was the "impossible to find a window size
+     that fits" (2026-08-13): every width was either two tall stacked cards or one wide short one,
+     with nothing in between. Now a second column only forms once both cards can keep their
+     instruments side by side; below one column's worth the single card stacks, which is the only
+     place stacking actually helps. Keep this value ABOVE the @container breakpoint at the bottom
+     of this file — if they meet, a full-width card in its own track stacks for no reason. */
+  /* min(--card-min, 100%), not --card-min: a track minimum is a hard floor, so a bare 470px min
+     made every card 470px wide inside a 314px window and the whole rack scrolled sideways
+     (measured at 340x600). Capping the floor at the container width lets the last column collapse
+     to whatever is there, which is the case the stacked layout at the bottom of this file is for. */
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--card-min), 100%), 1fr));
   /* Cards set overflow:hidden, which zeroes their automatic minimum size — so `auto` rows in a
      definite-height scroll container squash every card to an equal share instead of overflowing
      into the scrollbar. Measured 2026-08-12: 9 cards at 620x1000 rendered 83px tall each,
      clipping everything below the node row. max-content rows keep each card at its own height. */
   grid-auto-rows: max-content;
   align-content: start;
+  /* Each card keeps its OWN height. Without this a blanking panel beside a running module gets
+     stretched to the running card's height — an empty graphite slab three times taller than the
+     one word printed on it, which is what a rack of mostly-idle hosts looked like. */
+  align-items: start;
   gap: var(--gap);
   padding: var(--gap);
 }
 
 /* Kind filter (top bar "Show"). Hiding is display:none rather than a rebuild, so a filtered-out
    host keeps collecting and its card is instantly correct when it comes back. */
-#cards.filter-comfyui .job-card[data-kind='aitoolkit'],
-#cards.filter-aitoolkit .job-card[data-kind='comfyui'] {
+/* Selected by data-kind on the card's root rather than by widget class: the rack module and the
+   reactor panel are different widgets, and the filter is a question about the HOST, not about which
+   widget is drawing it. */
+#cards.filter-comfyui > [data-kind='aitoolkit'],
+#cards.filter-aitoolkit > [data-kind='comfyui'] {
   display: none;
 }
 
@@ -236,6 +279,11 @@ body {
 
 .job-card {
   position: relative;
+  /* The SIZE control. zoom (not transform: scale) because zoom is a layout-space scale: the card
+     still fills its grid track and still sets its own height, so nothing overlaps and no space is
+     reserved for a scaled-away box. The card's container-query width becomes track/zoom, which is
+     what keeps a zoomed-out module side-by-side instead of stacking. */
+  zoom: var(--card-zoom, 1);
   /* Container query unit, not viewport: at 700px wide the grid runs two columns, so a card can
      be narrow inside a wide window. The layout has to answer to the card's own width. */
   container-type: inline-size;
@@ -277,6 +325,36 @@ body {
 .jc-bolt--tr { top: 6px; right: 6px; }
 .jc-bolt--bl { bottom: 6px; left: 6px; }
 .jc-bolt--br { bottom: 6px; right: 6px; }
+
+/* ── Dragging a module to a new rack slot ── */
+.job-card--dragging {
+  opacity: 0.35;
+}
+
+/* The rail the module will drop into: a lit edge on the side it lands. Two rules rather than a
+   generic outline, because "before this one" and "after this one" are the whole message. */
+.job-card--drop-before,
+.job-card--drop-after {
+  position: relative;
+}
+
+.job-card--drop-before::after,
+.job-card--drop-after::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--lamp-run);
+  box-shadow: 0 0 8px rgba(255, 162, 44, 0.75);
+  pointer-events: none;
+}
+
+/* Inside the faceplate edge, not in the grid gap: the card sets overflow:hidden (that is what
+   keeps its automatic minimum size at zero for the grid), so anything outside the box is clipped. */
+.job-card--drop-before::after { left: 2px; }
+.job-card--drop-after::after { right: 2px; }
 
 .job-card[data-status='offline'] { --lit: var(--lamp-idle); }
 .job-card[data-status='connecting'] { --lit: var(--lamp-wait); }
@@ -446,9 +524,13 @@ body {
    it reads as an afterthought. Clamped at both ends: below ~210px the graduations crowd, above
    ~340px it starts stealing width the identity plate needs. */
 .jc-well--meter {
-  flex: 0 0 clamp(210px, 38%, 340px);
+  flex: 0 0 clamp(190px, 38%, 340px);
   display: flex;
   flex-direction: column;
+  /* Dial + legend as one group in the middle of the recess. The well is as tall as the readout
+     beside it, and on a narrow module the readout is the taller of the two — top-aligned, the
+     instrument sat with a hand's width of empty well under it. */
+  justify-content: center;
   gap: 6px;
 }
 
@@ -576,19 +658,30 @@ body {
   visibility: hidden;
 }
 
-/* No rate to show: the face is unlit — a backlit instrument with nothing to measure goes dark,
-   the needle rests at its stop, and the legend says so. This is also what keeps a rack of idle
-   hosts quiet: the ivory face only glows on the module that is actually sampling. Never a
-   resting value that could be mistaken for a measurement. */
-.meter--nosignal .meter-face { fill: #191C1F; }
-.meter--nosignal .meter-tick { stroke: rgba(216, 210, 196, 0.14); }
-.meter--nosignal .meter-tick--major { stroke: rgba(216, 210, 196, 0.26); }
-.meter--nosignal .meter-label { fill: rgba(216, 210, 196, 0.28); }
-.meter--nosignal .meter-unit { fill: rgba(216, 210, 196, 0.2); }
-.meter--nosignal .meter-sheen-hi { stop-color: rgba(255, 255, 255, 0.05); }
+/* TWO STATES, DELIBERATELY SEPARATE (split 2026-08-13):
+   .meter--nosignal = there is no reading — parked needle, NO SIGNAL legend. Honesty rule: a
+     resting needle must never look like a measurement.
+   .meter--dark     = the lamp is off. Only when there is no reading AND no job running, so a rack
+     of idle modules still goes quiet and exactly one face glows.
+   They used to be the same class, which meant the backlight blinked off for the few seconds
+   between batch items — a run of 28 images flashed the face 28 times. */
 .meter--nosignal .meter-nosignal { visibility: visible; }
-.meter--nosignal .meter-needle { stroke: rgba(194, 53, 42, 0.35); }
-.meter--nosignal .meter-hub { fill: rgba(142, 43, 34, 0.4); }
+
+/* The legend is printed on whatever the face currently is: light ink on an unlit face, DARK ink on
+   a lit one. It was written for the dark face only, so once the lamp stayed on through a job it
+   washed out to nearly nothing on ivory. */
+.meter--nosignal:not(.meter--dark) .meter-nosignal { fill: rgba(35, 33, 28, 0.38); }
+.meter--nosignal .meter-needle { stroke: rgba(194, 53, 42, 0.55); }
+.meter--nosignal .meter-hub { fill: rgba(142, 43, 34, 0.6); }
+
+.meter--dark .meter-face { fill: #191C1F; }
+.meter--dark .meter-tick { stroke: rgba(216, 210, 196, 0.14); }
+.meter--dark .meter-tick--major { stroke: rgba(216, 210, 196, 0.26); }
+.meter--dark .meter-label { fill: rgba(216, 210, 196, 0.28); }
+.meter--dark .meter-unit { fill: rgba(216, 210, 196, 0.2); }
+.meter--dark .meter-sheen-hi { stop-color: rgba(255, 255, 255, 0.05); }
+.meter--dark .meter-needle { stroke: rgba(194, 53, 42, 0.35); }
+.meter--dark .meter-hub { fill: rgba(142, 43, 34, 0.4); }
 
 /* ── Seven-segment readout ── */
 .jc-readout {
@@ -747,6 +840,12 @@ body {
   min-width: 0;
 }
 
+/* setJobEta() hides the whole Batch ETA row on a job that isn't a batch — but an author
+   `display: flex` beats the UA stylesheet's `[hidden] { display: none }` no matter the
+   specificity, so without this the row printed a permanent "BATCH ETA --" beside the live
+   figures. Found 2026-08-14 in the skin mockup, present in every skin. */
+.jc-legend[hidden] { display: none; }
+
 .jc-legend-label {
   font-family: var(--font-legend);
   font-weight: 600;
@@ -838,8 +937,42 @@ body {
 
 .jc-pct { color: var(--lit); }
 
-/* ── Narrow module: instruments stack instead of sitting side by side ── */
-@container (max-width: 430px) {
+/* Batch position, between the step count and the percentage. Lit like the percentage — it is a
+   live figure, not a legend — and it takes no space at all on a single-image job. */
+.jc-batch {
+  color: var(--lit);
+  opacity: 0.85;
+  margin-left: auto;
+  margin-right: 10px;
+}
+
+.jc-batch:not(.jc-batch--on) { display: none; }
+
+/* ── Module size (top bar) ──
+   TWO effects, and the second is the one that matters: `--card-min` decides how many modules fit
+   across, and `--card-zoom` scales the module itself. Column count alone was not enough — at a
+   785px window all three settings still fit exactly one column, so the control looked broken
+   (Bryan, 2026-08-13: "the compact, normal and large dropdown does not appear to do anything").
+   Zoom scales the whole faceplate — dial, numerals, silkscreen, bolts — so the module gets smaller
+   or bigger at ANY window width, which is what the control claims to do.
+   Every --card-min stays above the stacking breakpoint below, so a size change never reflows a card
+   into the tall stacked layout. */
+body.size-compact { --card-min: 400px; --card-zoom: 0.82; }
+body.size-normal  { --card-min: 470px; --card-zoom: 1; }
+body.size-large   { --card-min: 620px; --card-zoom: 1.18; }
+
+/* Narrow module, still side by side: buy the width back from the gap between the numerals and the
+   identity plate rather than from the instruments. */
+@container (max-width: 420px) {
+  .jc-readout { gap: 14px; }
+}
+
+/* ── Narrow module: instruments stack instead of sitting side by side ──
+   Only when the WINDOW is genuinely narrow — one column, no room.
+   NOTE THE UNITS: a container query on `container-type: inline-size` measures the CONTENT box, so
+   this 358 is about a 392px card once padding and border are counted. It has to stay under every
+   --card-min above in those terms, or a size setting would stack its own default width. */
+@container (max-width: 358px) {
   .jc-body {
     flex-direction: column;
   }
@@ -962,7 +1095,10 @@ body {
 .settings-host-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* Four controls per row now (move, move, hide, remove). On a narrow window they wrap under the
+     URL rather than squeezing the buttons into unreadable slivers. */
+  flex-wrap: wrap;
+  gap: 10px 8px;
   padding: 5px 0;
   border-bottom: 1px solid #0B0D0F;
   box-shadow: 0 1px 0 var(--bevel-hi);
@@ -1009,6 +1145,8 @@ body {
 }
 
 .settings-remove-btn,
+.settings-hide-btn,
+.settings-move-btn,
 .settings-add-btn {
   background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
   border: 1px solid #0A0C0E;
@@ -1027,13 +1165,106 @@ body {
 
 .settings-remove-btn:hover { color: var(--lamp-fault); }
 .settings-add-btn:hover { color: var(--lamp-run); }
+.settings-hide-btn:hover,
+.settings-move-btn:hover:not(:disabled) { color: var(--legend); }
+
+.settings-remove-btn,
+.settings-hide-btn,
+.settings-move-btn { flex: 0 0 auto; }
+
+/* Rack-order arrows: square, tight, one glyph. They are a nudge, not a command. */
+.settings-move-btn {
+  padding: 4px 7px;
+  letter-spacing: 0;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Both ends of the list keep their arrows, greyed — a control that vanishes on the first and last
+   row makes every row a different width. */
+.settings-move-btn:disabled {
+  color: #4A4F55;
+  cursor: default;
+}
+
+/* Fixed width so Hide and Show do not shuffle the row when it toggles. */
+.settings-hide-btn {
+  padding: 5px 8px;
+  min-width: 56px;
+}
+
+/* Says the host is out of the rack ON PURPOSE. Dimming alone reads as offline, which is the one
+   thing it must not be confused with — a hidden host is not being watched at all. */
+.settings-host-tag {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lamp-wait);
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+}
+
+.settings-host-row--hidden .settings-host-name,
+.settings-host-row--hidden .settings-host-url {
+  color: var(--legend-dim);
+}
+
+/* ── Dial settings ── */
+.settings-title--sub {
+  margin-top: 14px;
+  margin-bottom: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #0B0D0F;
+  box-shadow: 0 -1px 0 var(--bevel-hi);
+}
+
+.settings-dial-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.settings-dial-label {
+  font-family: var(--font-legend);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--legend-mid);
+  min-width: 110px;
+}
+
+.settings-dial-select { min-width: 132px; }
+
+.settings-dial-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--legend-dim);
+}
+
+.settings-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--legend-dim);
+  margin-bottom: 9px;
+}
 
 .settings-remove-btn:active,
+.settings-hide-btn:active,
+.settings-move-btn:active:not(:disabled),
 .settings-add-btn:active {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6) inset;
 }
 
 .settings-remove-btn:focus-visible,
+.settings-hide-btn:focus-visible,
+.settings-move-btn:focus-visible,
 .settings-add-btn:focus-visible,
 .settings-input:focus-visible {
   outline: 2px solid var(--lamp-run);
@@ -1060,6 +1291,24 @@ body {
 }
 
 .settings-input:focus { outline: none; }
+
+/* The add-form's kind dropdown was still a raw white Windows combobox inside the faceplate. A flat
+   background colour does not displace the native widget on a <select>; a gradient does, which is
+   why the top bar's selects have always looked right. (appearance:none would too, but it also
+   removes the caret, and the CSP here forbids the data: URI a replacement glyph would need.) */
+select.settings-input {
+  background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
+  color: var(--legend-mid);
+  font-family: var(--font-legend);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+select.settings-input option {
+  background: #1C1F23;
+  color: #D8D2C4;
+}
 
 .settings-error {
   flex-basis: 100%;

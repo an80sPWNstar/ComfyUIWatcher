@@ -130,20 +130,112 @@ const SWEEP_DEG = 96;
 // Every face is graduated in it/s underneath, whatever its labels say. That is what keeps
 // needle direction meaning ONE thing in a rack that mixes generation and training modules:
 // further right is always faster. Only the printed numbers change.
+// ── Selectable ranges (added 2026-08-13, Bryan's call) ─────────────────────
+// One face never fits every job. His generation work sits between about 0.1 and 5 it/s, and on the
+// old fixed ±100 face that is a few degrees either side of centre — "100 is too far in both
+// directions". So the range is a setting (hosts panel → Dials), and 20 is the default. The wide
+// face stays available for the rare fast run rather than being deleted.
+//
+// Each range is written out by hand, not generated: which marks carry a label is the difference
+// between a readable dial and a wall of numbers, and every label has to be a whole number (see the
+// rejected schemes in CLAUDE.md). Marks are ALWAYS in it/s, whatever the labels print.
+const SAMPLING_RANGES = [5, 20, 100];
+const TRAINING_RANGES = [10, 30, 60];
+const DEFAULT_SAMPLING = 20;
+const DEFAULT_TRAINING = 60;
+const DIAL_KEYS = {
+  sampling: 'comfyuiwatcher-dial-sampling',
+  training: 'comfyuiwatcher-dial-training',
+};
+
+// Sampling: symmetric about the 1:1 centre, left half labelled in s/it (the reciprocal), right half
+// in it/s — so every label is a whole number and the unit word for the half being read lights up.
+const SAMPLING_MARKS = {
+  5: [
+    { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 },
+    { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1', centre: true },
+    { v: 1.5 }, { v: 2, label: '2' },
+    { v: 3 }, { v: 4 }, { v: 5, label: '5' },
+  ],
+  20: [
+    { v: 1 / 20, label: '20' }, { v: 1 / 15 }, { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+    { v: 1 / 5, label: '5' }, { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1', centre: true },
+    { v: 1.5 }, { v: 2, label: '2' }, { v: 3 }, { v: 5, label: '5' },
+    { v: 7 }, { v: 10, label: '10' }, { v: 15 }, { v: 20, label: '20' },
+  ],
+  100: [
+    { v: 0.01, label: '100' }, { v: 0.02 }, { v: 0.05 },
+    { v: 0.1, label: '10' }, { v: 0.2 }, { v: 0.5 },
+    { v: 1, label: '1', centre: true }, { v: 2 }, { v: 5 },
+    { v: 10, label: '10' }, { v: 20 }, { v: 50 }, { v: 100, label: '100' },
+  ],
+};
+
+// Training: one unit, no split, labels DESCENDING left to right because the scale underneath is
+// still it/s — further right is faster on every module in the rack.
+const TRAINING_MARKS = {
+  10: [
+    { v: 1 / 10, label: '10' }, { v: 1 / 8 }, { v: 1 / 6 },
+    { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3, label: '3' },
+    { v: 1 / 2, label: '2' }, { v: 1 / 1.5 }, { v: 1, label: '1' },
+  ],
+  30: [
+    { v: 1 / 30, label: '30' }, { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+    { v: 1 / 10, label: '10' }, { v: 1 / 7 }, { v: 1 / 5, label: '5' },
+    { v: 1 / 4 }, { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1' },
+  ],
+  60: [
+    { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30 },
+    { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+    { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+    { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 },
+    { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1' },
+  ],
+};
+
+/** The range a face is currently set to, from localStorage, falling back to the default. */
+function dialRange(kind) {
+  const allowed = kind === 'training' ? TRAINING_RANGES : SAMPLING_RANGES;
+  const fallback = kind === 'training' ? DEFAULT_TRAINING : DEFAULT_SAMPLING;
+  const saved = Number(localStorage.getItem(DIAL_KEYS[kind === 'training' ? 'training' : 'sampling']));
+  return allowed.includes(saved) ? saved : fallback;
+}
+
+function setDialRange(kind, range) {
+  localStorage.setItem(DIAL_KEYS[kind === 'training' ? 'training' : 'sampling'], String(range));
+}
+
+/** Build the face spec for a kind at its current range. */
+function faceSpec(kind) {
+  const range = dialRange(kind);
+  if (kind === 'training') {
+    return {
+      minLog: -Math.log10(range),
+      maxLog: 0,
+      units: { slow: 'sec/iter', single: true },
+      marks: TRAINING_MARKS[range] ?? TRAINING_MARKS[DEFAULT_TRAINING],
+    };
+  }
+  return {
+    minLog: -Math.log10(range),
+    maxLog: Math.log10(range),
+    units: { slow: 's/it', fast: 'it/s' },
+    marks: SAMPLING_MARKS[range] ?? SAMPLING_MARKS[DEFAULT_SAMPLING],
+  };
+}
+
 const FACES = {
-  // Sampling: four decades, 0.01..100 it/s, split at the 1:1 centre. Left half labelled in s/it
-  // (the reciprocal), right half in it/s, so every label is a whole number and the unit word for
-  // the half being read lights up.
+  // Kept as the shape the drawing code reads; the live specs come from faceSpec() so a range change
+  // needs no new entry here.
   sampling: {
     minLog: -2,
     maxLog: 2,
     units: { slow: 's/it', fast: 'it/s' },
-    marks: [
-      { v: 0.01, label: '100' }, { v: 0.02 }, { v: 0.05 },
-      { v: 0.1, label: '10' }, { v: 0.2 }, { v: 0.5 },
-      { v: 1, label: '1', centre: true }, { v: 2 }, { v: 5 },
-      { v: 10, label: '10' }, { v: 20 }, { v: 50 }, { v: 100, label: '100' },
-    ],
+    marks: SAMPLING_MARKS[100],
   },
   // Training: 60..1 s/it, one unit, no dead half. Scaled from Bryan's own recorded ai-toolkit
   // runs — 2.17, 3.66, 4.41, 5.09, 6.08 and 30.07 s/it. NOTHING he has ever trained ran faster
@@ -216,9 +308,10 @@ function wakeNeedles() {
 
 /** @param {'sampling'|'training'} [faceName] which graduation to print. */
 function createRateMeter(faceName) {
-  const face = FACES[faceName] ?? FACES.sampling;
+  const kind = faceName === 'training' ? 'training' : 'sampling';
+  let face = faceSpec(kind);
   const wrap = document.createElement('div');
-  wrap.className = `meter meter--${faceName && FACES[faceName] ? faceName : 'sampling'}`;
+  wrap.className = `meter meter--${kind}`;
 
   const svg = svgEl('svg', { viewBox: '0 0 200 92', class: 'meter-svg' });
   const cx = 100;
@@ -228,49 +321,77 @@ function createRateMeter(faceName) {
 
   svg.appendChild(svgEl('rect', { x: 2, y: 2, width: 196, height: 88, rx: 3, class: 'meter-face' }));
 
-  // Graduations. A face's marks are listed explicitly (in it/s) rather than generated per decade:
-  // the training face is not decade-aligned, and hand-picking which marks carry a label is the
-  // difference between a readable dial and a wall of numbers.
-  for (const m of face.marks) {
-    const a = posToAngle(meterPos(face, m.v));
-    const len = m.centre ? 13 : m.label ? 9 : 5;
-    svg.appendChild(svgEl('line', {
-      x1: cx + (m.centre ? rTick - 5 : rTick) * Math.cos(toRad(a)),
-      y1: cy + (m.centre ? rTick - 5 : rTick) * Math.sin(toRad(a)),
-      x2: cx + (rTick + len) * Math.cos(toRad(a)),
-      y2: cy + (rTick + len) * Math.sin(toRad(a)),
-      class: `meter-tick${m.label ? ' meter-tick--major' : ''}${m.centre ? ' meter-tick--centre' : ''}`,
-    }));
-    if (m.label) {
-      const rl = rTick + len + 7;
-      const t = svgEl('text', {
-        x: cx + rl * Math.cos(toRad(a)),
-        y: cy + rl * Math.sin(toRad(a)) + 3,
-        class: 'meter-label',
-      });
-      t.textContent = m.label;
-      svg.appendChild(t);
+  // Graduations live in their own group so a range change can REPRINT the face in place. Rebuilding
+  // the card instead would drop the needle back to the stop and re-run its ballistics mid-job,
+  // which is the same reason skins and the kind filter are pure CSS over one DOM.
+  // The group is inserted before the needle, so paint order stays face → ticks → needle → glass.
+  const grads = svgEl('g', { class: 'meter-grads' });
+  svg.appendChild(grads);
+
+  function drawFace() {
+    grads.replaceChildren();
+    // A face's marks are listed explicitly (in it/s) rather than generated per decade: the training
+    // face is not decade-aligned, and hand-picking which marks carry a label is the difference
+    // between a readable dial and a wall of numbers.
+    for (const m of face.marks) {
+      const a = posToAngle(meterPos(face, m.v));
+      const len = m.centre ? 13 : m.label ? 9 : 5;
+      grads.appendChild(svgEl('line', {
+        x1: cx + (m.centre ? rTick - 5 : rTick) * Math.cos(toRad(a)),
+        y1: cy + (m.centre ? rTick - 5 : rTick) * Math.sin(toRad(a)),
+        x2: cx + (rTick + len) * Math.cos(toRad(a)),
+        y2: cy + (rTick + len) * Math.sin(toRad(a)),
+        class: `meter-tick${m.label ? ' meter-tick--major' : ''}${m.centre ? ' meter-tick--centre' : ''}`,
+      }));
+      if (m.label) {
+        const rl = rTick + len + 7;
+        const t = svgEl('text', {
+          x: cx + rl * Math.cos(toRad(a)),
+          y: cy + rl * Math.sin(toRad(a)) + 3,
+          class: 'meter-label',
+        });
+        t.textContent = m.label;
+        grads.appendChild(t);
+      }
+    }
+
+    // ONE scale, one unit per half. This face has been wrong twice in the other direction: first
+    // both "s/it" and "it/s" printed beside a single row of it/s numbers (a unit pointing at a
+    // scale that wasn't drawn), then a real second s/it row in a second ink — correct, but two rows
+    // of numbers on a 196px instrument is more than anyone reads at a glance. The exact figure,
+    // flipped to s/it below 1 the way ComfyUI does it, lives in the RATE legend under the readout.
+    //
+    // The words sit off bottom-centre because the needle pivots there and draws straight through
+    // anything printed at centre — a single-unit face keeps the same left slot for that reason,
+    // NOT the middle of the dial (moving it up to clear the pivot put it through the top
+    // graduations instead). The word for the half being read lights up in pointer red.
+    const unitSlow = svgEl('text', { x: 44, y: 84, class: 'meter-unit meter-unit--slow' });
+    unitSlow.textContent = face.units.slow ?? '';
+    grads.appendChild(unitSlow);
+    if (!face.units.single) {
+      const unitFast = svgEl('text', { x: 156, y: 84, class: 'meter-unit meter-unit--fast' });
+      unitFast.textContent = face.units.fast ?? '';
+      grads.appendChild(unitFast);
     }
   }
 
-  // ONE scale, one unit per half. This face has been wrong twice in the other direction: first
-  // both "s/it" and "it/s" printed beside a single row of it/s numbers (a unit pointing at a
-  // scale that wasn't drawn), then a real second s/it row in a second ink — correct, but two rows
-  // of numbers on a 196px instrument is more than anyone reads at a glance. The exact figure,
-  // flipped to s/it below 1 the way ComfyUI does it, lives in the RATE legend under the readout.
-  //
-  // The words sit off bottom-centre because the needle pivots there and draws straight through
-  // anything printed at centre — a single-unit face keeps the same left slot for that reason,
-  // NOT the middle of the dial (moving it up to clear the pivot put it through the top
-  // graduations instead). The word for the half being read lights up in pointer red.
-  const unitSlow = svgEl('text', { x: 44, y: 84, class: 'meter-unit meter-unit--slow' });
-  unitSlow.textContent = face.units.slow ?? '';
-  svg.appendChild(unitSlow);
-  if (!face.units.single) {
-    const unitFast = svgEl('text', { x: 156, y: 84, class: 'meter-unit meter-unit--fast' });
-    unitFast.textContent = face.units.fast ?? '';
-    svg.appendChild(unitFast);
-  }
+  drawFace();
+
+  // ── Halo arc: the same reading, drawn as a lit arc instead of a printed pointer ──
+  // Two paths on the tick circle: a dim full-sweep track, and a value trace that fills from the
+  // left stop to wherever the needle currently is. They carry NO information the needle does not
+  // already carry — they are a second rendering of one value, which is why a skin may paint them
+  // or leave them off. main.css hides both by default; only skins that want an instrument with no
+  // printed face turn them on (skin-halo). Adding them here rather than in a skin-specific widget
+  // keeps every skin on ONE DOM, so switching skin still never rebuilds a card mid-job.
+  const rArc = rTick - 4;
+  const arcPt = (a) => `${(cx + rArc * Math.cos(toRad(a))).toFixed(2)} ${(cy + rArc * Math.sin(toRad(a))).toFixed(2)}`;
+  const arcPath = `M ${arcPt(-SWEEP_DEG / 2)} A ${rArc} ${rArc} 0 0 1 ${arcPt(SWEEP_DEG / 2)}`;
+  svg.appendChild(svgEl('path', { d: arcPath, class: 'meter-arc-track', pathLength: 1 }));
+  const arcValue = svgEl('path', {
+    d: arcPath, class: 'meter-arc-value', pathLength: 1, 'stroke-dasharray': '0 1',
+  });
+  svg.appendChild(arcValue);
 
   const needle = svgEl('line', {
     x1: cx, y1: cy, x2: cx, y2: cy - (rTick + 3), class: 'meter-needle',
@@ -306,25 +427,71 @@ function createRateMeter(faceName) {
     target: -SWEEP_DEG / 2,
     apply(deg) {
       needle.setAttribute('transform', `rotate(${deg.toFixed(2)} ${cx} ${cy})`);
+      // The trace follows the needle, not the raw rate — so it swings with the same ballistics
+      // and parks at zero length when the pointer is at its stop.
+      const f = (deg + SWEEP_DEG / 2) / SWEEP_DEG;
+      arcValue.setAttribute('stroke-dasharray', `${f.toFixed(4)} 1`);
+      // A rounded cap on a zero-length dash still paints a lit dot — the same trap the old arc
+      // gauge hit — and a dot at the stop would read as a measurement.
+      arcValue.style.visibility = f > 0.004 ? '' : 'hidden';
     },
   };
   state.apply(state.angle);
   needles.add(state);
 
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let lastRate = null;
+  let powered = false;
+
+  const isLive = () => lastRate != null && Number.isFinite(lastRate) && lastRate > 0;
+
+  // TWO independent states, and keeping them apart is the whole point:
+  //   .meter--nosignal — there is no reading. Parked needle, NO SIGNAL legend.
+  //   .meter--dark     — the lamp is off. Only when there is no reading AND nothing is running.
+  // So a running job with no rate yet shows a lit face with an honestly parked pointer, and an idle
+  // host still goes properly dark (which is what keeps a rack of idle modules quiet).
+  function applyLighting() {
+    const live = isLive();
+    wrap.classList.toggle('meter--nosignal', !live);
+    wrap.classList.toggle('meter--dark', !live && !powered);
+    // Which half is being read — lights that half's unit word, and it is the same 1.0 cutover the
+    // RATE legend under the readout uses, so face and figure never disagree. A single-unit face has
+    // only one word, so it lights whenever the instrument reads anything at all.
+    const slow = face.units.single || lastRate < 1;
+    wrap.classList.toggle('meter--reading-slow', live && slow);
+    wrap.classList.toggle('meter--reading-fast', live && !slow);
+  }
+
+  applyLighting();
 
   return {
     el: wrap,
+    /**
+     * Reprint the face at whatever range is currently saved, and re-point the needle at the rate it
+     * was already showing — the reading has not changed, only the scale it is read against.
+     */
+    refreshFace() {
+      face = faceSpec(kind);
+      drawFace();
+      this.setRate(lastRate);
+    },
+    /**
+     * Backlight, independent of the reading. A real instrument's lamp is on because the rack is
+     * running, not because the pointer happens to be off zero — and a face that went dark for the
+     * few seconds between batch items flashed bright/dark/bright/dark through a whole run, which was
+     * the most distracting thing on screen (Bryan, 2026-08-13). `on` = a job is running on this
+     * host. The needle and the NO SIGNAL legend still tell the truth about whether there is a
+     * reading, so a lit face with a parked pointer cannot be misread as a measurement.
+     */
+    setPowered(on) {
+      powered = !!on;
+      applyLighting();
+    },
     /** @param {number|null} itPerSec — null/0 parks the needle at the stop and lights NO SIGNAL. */
     setRate(itPerSec) {
-      const live = itPerSec != null && Number.isFinite(itPerSec) && itPerSec > 0;
-      wrap.classList.toggle('meter--nosignal', !live);
-      // Which half is being read — lights that half's unit word, and it is the same 1.0 cutover
-      // the RATE legend under the readout uses, so face and figure never disagree. A single-unit
-      // face has only one word, so it lights whenever the instrument reads anything at all.
-      const slow = face.units.single || itPerSec < 1;
-      wrap.classList.toggle('meter--reading-slow', live && slow);
-      wrap.classList.toggle('meter--reading-fast', live && !slow);
+      lastRate = itPerSec;
+      applyLighting();
+      const live = isLive();
       state.target = live ? posToAngle(meterPos(face, itPerSec)) : -SWEEP_DEG / 2;
       if (reduceMotion.matches) {
         state.angle = state.target;
@@ -340,6 +507,50 @@ function createRateMeter(faceName) {
   };
 }
 
+/**
+ * Register a pointer with the shared ballistics loop and get a handle back.
+ *
+ * The reactor panel draws its own instruments (twin dials, a progress movement) but must NOT run
+ * its own rAF loop: with three needles per card that would be one timer per host per instrument,
+ * all doing the same 60Hz integration this file already does for the rack meter. `apply(deg)` is
+ * called with the current angle each frame; `setAngle` sets the target and `destroy` unregisters —
+ * a needle left in the set animates forever after its card is removed.
+ *
+ * @param {(deg: number) => void} apply
+ * @param {number} [start] resting angle, in degrees
+ */
+function createNeedle(apply, start = 0) {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const state = { angle: start, vel: 0, target: start, apply };
+  state.apply(state.angle);
+  needles.add(state);
+  return {
+    setAngle(deg) {
+      state.target = deg;
+      if (reduceMotion.matches) {
+        state.angle = deg;
+        state.vel = 0;
+        state.apply(deg);
+      } else {
+        wakeNeedles();
+      }
+    },
+    destroy() {
+      needles.delete(state);
+    },
+  };
+}
+
 window.Widgets = window.Widgets || {};
 window.Widgets.createSevenSeg = createSevenSeg;
+window.Widgets.createNeedle = createNeedle;
+// The graduation tables, at whatever range the Dials setting is on. Exported so a second card
+// widget reads the SAME hand-written marks rather than generating its own — see the four rejected
+// labelling schemes in CLAUDE.md for why these are not computed.
+window.Widgets.faceSpec = faceSpec;
+// Dial ranges are display settings, like the skin: the settings panel writes them, renderer.js
+// tells the cards to reprint. Exposed here because the faces live here.
+window.Widgets.dialRanges = { sampling: SAMPLING_RANGES, training: TRAINING_RANGES };
+window.Widgets.dialRange = dialRange;
+window.Widgets.setDialRange = setDialRange;
 window.Widgets.createRateMeter = createRateMeter;

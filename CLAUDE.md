@@ -64,8 +64,11 @@ comfyuiWATCHER/
 │       ├── lcd.js                   # Seven-segment readout + arc gauge, ported from
 │       │                            # tempsLCD-web's design_system (React -> plain DOM/SVG)
 │       ├── job-card.js              # Per-host card: steps-left hero readout, node, LED bar
+│       ├── reactor-panel.js         # SECOND card widget: control-panel layout, two idioms
+│       │                            # (annunciators, twin dials, bulb banks, split-flap/nixie)
 │       └── settings-panel.js        # Host add/remove UI over hosts:get/hosts:set IPC
 ├── styles/main.css                  # Dark theme, CSS custom properties for future skinning
+├── styles/reactor.css               # Reactor panel only — touches nothing the rack card uses
 └── test/
     ├── run.js                       # No-framework runner, spawns each *.test.js in its own process
     └── comfyui-client.test.js       # Pure logic: step-rate estimation, executing/finished edge cases
@@ -223,7 +226,10 @@ read as a spaceship HUD). The old arc gauge is gone too.
   image and a 0.07 it/s H3 video sampler, and a linear face pins the needle for whichever it
   wasn't scaled for. **No red zone**: on real gear that means overload, and a slow sampler is not
   a fault. There are two faces, chosen by card kind:
-  - `sampling` — 0.01→100 it/s, split at 1:1 (below).
+  - `sampling` — split at 1:1 (below), **end stops selectable in the hosts panel → Dials: 5 / 20 /
+    100, default 20** (changed from a fixed ±100 on 2026-08-13 — "100 is too far in both
+    directions"; everything Bryan generates sat within a few degrees of centre). The wide face is
+    kept for a genuinely fast run rather than deleted.
   - `training` — **60…1 s/it, one unit, no split** (added 2026-08-13). Scaled from Bryan's six
     recorded ai-toolkit runs: 2.17, 3.66, 4.41, 5.09, 6.08 and 30.07 s/it. **Nothing he has ever
     trained ran faster than 1 it/s**, so on the sampling face all six pile up within a few degrees
@@ -232,6 +238,16 @@ read as a spaceship HUD). The old arc gauge is gone too.
     unchanged sampling face, and a loss face (needle on loss, .001–1, with a trace) — the loss
     face's trace carried more than its needle did, and it made training cards taller than
     generation ones.
+  - **Ranges are hand-written tables, not generated** (`SAMPLING_MARKS` / `TRAINING_MARKS` in
+    `widgets/lcd.js`, keyed by end stop; training offers 10 / 30 / 60 s/it, default 60). Which marks
+    carry a label is the difference between a readable dial and a wall of numbers, and every label
+    has to stay a whole number — see the four rejected schemes below.
+  - **A range change REPRINTS the face in place** (`meter.refreshFace()` → `Widgets.refreshCardFace`
+    → a `comfyuiwatcher:dial-range` event that `renderer.js` listens for). The graduations live in
+    their own `<g class="meter-grads">` inserted before the needle so paint order survives a
+    redraw. Rebuilding the card instead would drop the needle to its stop and re-run its ballistics
+    mid-job — same reason skins and the kind filter are pure CSS over one DOM. `setRate` remembers
+    its last value so the needle re-points at the same reading on the new scale.
   - **Both faces are graduated in it/s underneath, whatever they print.** That is what keeps
     needle direction meaning one thing in a mixed rack: further right is always faster. The
     training face's labels descend 60→1 for exactly this reason. Drawing it the intuitive way
@@ -286,13 +302,27 @@ read as a spaceship HUD). The old arc gauge is gone too.
   `vel += (err*0.085 - vel*0.42)*dt` for every needle on screen (per-card loops would mean one
   timer per host). It parks itself when everything settles, and `destroyCard()` must be called
   when a card is removed or its needle animates forever — `renderer.js` does this.
-- **The face is backlit, and only lights when there is a signal.** No rate → dark face, needle at
-  the stop, NO SIGNAL legend. This is what keeps a rack of idle hosts quiet: exactly one ivory
-  face glows, the module that is actually sampling. Same honesty rule as everywhere else — a
-  resting needle must never look like a measurement.
-- **Idle/offline hosts collapse to a blanking panel** (`.job-card--blank`): nameplate, lamp, one
-  state word, no instruments, no bar. A watcher normally stares at a rack where most hosts idle;
-  a dark meter and an N/A readout would be three rows of furniture reporting nothing.
+- **The face is backlit, and the lamp follows the JOB — not the reading** (revised 2026-08-13).
+  Two independent states, and keeping them apart is the point:
+  - `.meter--nosignal` — no reading: needle parked at the stop, NO SIGNAL legend. Honesty rule
+    unchanged, a resting needle must never look like a measurement.
+  - `.meter--dark` — lamp off, set only when there is no reading AND no job running
+    (`meter.setPowered()` from `updateCard`). A rack of idle hosts still goes quiet, so exactly one
+    face glows.
+  They used to be one class, which meant the backlight blinked off in every gap where the rate was
+  unknown — on a 28-image batch run the face flashed bright/dark 28 times, which Bryan called out
+  as the most distracting thing on screen. **Both skins must override both classes**; overriding
+  only `--nosignal` reintroduces the blink in that skin.
+  The NO SIGNAL legend is light ink on an unlit face and **dark ink on a lit one**
+  (`.meter--nosignal:not(.meter--dark)`) — written for the dark face only, it washed out to nothing
+  once the lamp stayed on.
+- **Only a host that is NOT THERE collapses to a blanking panel** (`.job-card--blank`): offline,
+  unreachable, still connecting — nameplate, lamp, one state word, no instruments. **An ONLINE host
+  keeps its instruments even when idle** (revised 2026-08-13 at Bryan's request; the earlier rule
+  blanked idle-but-online too and he called it "the default look of nothing being connected or
+  active"). A reachable instance is the thing he is waiting on, so its card should already read as
+  an instrument — dark face, NO SIGNAL, N/A steps — not as a lid. The lever for a host he does not
+  want on screen is Hide, not auto-collapse.
 - `--lit` is one CSS variable per card holding its live colour (amber running / jade success /
   red fault / slate idle); jewel, numerals, node strip and bargraph all read from it. Add new lit
   elements the same way rather than hardcoding a colour.
@@ -343,15 +373,165 @@ job progress) wrapped around a **seven-segment count of steps REMAINING in the c
   **dot** (hence `.gauge--empty { visibility: hidden }`), and three stat values across a 330px
   card ellipsised every real number — hence rows, and `fmtSec` emitting `3m35s` with no space.
 
-### Step-Rate and ETA Estimation
-`_progressHistory` keeps a 15-second rolling window of `{value, atMs}` samples; `stepsPerSec` is
-the slope between the oldest and newest sample in that window, not an all-time average — a job's
-early steps are not representative once caching/skip-style techniques are in play (see the
-EasyCache quality findings in [[project-minimax-h3-attention-setup]]; irrelevant to this project's
-own correctness, but it's why "recent rate, not lifetime average" was the deliberate choice here
-too). `etaSec = (max - value) / stepsPerSec`, `null` whenever there's fewer than 2 samples or no
-positive time/step delta — **never** a fabricated `0%`-style number from a single sample, same
-principle guiTOP's `host-stats.js` follows for CPU percent.
+### Host build info — versions (added 2026-08-14)
+`comfyui-client.js` probes on WS connect and every 5 min (`INFO_POLL_MS`), emitting
+`snapshot.versions = {comfyui, pytorch, cuda, driver, python}`:
+- `GET /system_stats` — stock ComfyUI, verified against 0.33.1. Carries `comfyui_version`,
+  `python_version` and `pytorch_version`. `parseSystemStats()` is exported and unit-tested against
+  the real payload.
+- **The GPU stack is detected, not assumed — `detectAccelerator()`.** `snapshot.versions` carries
+  `{accel, accelVersion}`: `+cu130` → CUDA 13.0 (two-digit major then minor), `+rocm6.2` → ROCm 6.2
+  (that tag spells its version out), `+xpu` → XPU, `+cpu` → CPU. **THE BUILD TAG IS THE ONLY
+  RELIABLE TELL:** PyTorch's ROCm wheels report `torch.cuda`, `device.type === 'cuda'` and even a
+  `cuda:0` device name, so `/system_stats` looks identical on both stacks apart from
+  `pytorch_version` and the card's own name. An untagged build (source/conda) falls back to matching
+  the device name (AMD/Radeon/Instinct/gfx → ROCm, NVIDIA/GeForce/RTX/… → CUDA) and reports the
+  stack with a **null version** — a name never yields a version, and the panel prints `Backend /
+  ROCm` rather than inventing one. Note the CUDA figure is the CUDA the instance is BUILT against;
+  the driver's own max CUDA is a different fact and is deliberately not conflated with it.
+- `GET /watcher/host_info` — **our relay node**, because the driver version is in NO ComfyUI endpoint
+  and no installed node pack exposes it: Crystools reads it internally (`gpu.py`
+  `systemGetDriverVersion`) but its `/crystools/monitor/GPU` route returns index + name only
+  (checked against the live install 2026-08-14). The relay probes **both vendors**, ordered by
+  `torch.version.hip` (set only on a ROCm build) so a box is never asked about a driver it does not
+  have: NVIDIA via `pynvml` then `nvidia-smi`; AMD via `/sys/module/amdgpu/version` then `rocm-smi
+  --showdriverversion`. The answer is cached for the life of the process. A 404 from a host whose
+  relay predates the route is normal, not an error — driver stays null and the panel drops that
+  window. **The AMD paths are unit-tested at the parse level only; nothing here has run against a
+  real ROCm box** (there isn't one on this rack).
+- A failed probe leaves the previous answer standing rather than blanking a panel over one dropped
+  request.
+
+### Rack order, hiding a host (added 2026-08-13)
+The host list in `hosts.json` **IS the rack order** — `main.js`'s `watchedHosts()` stamps each
+visible host with `order`, the collector emits it in every snapshot, and `renderer.js` sets CSS
+`order` on the card. CSS order on a grid item, never DOM reshuffling: a card is never rebuilt, so a
+reorder cannot interrupt a running job's readout or its needle. Two ways to move a module, both
+writing the same file: drag the card (whole faceplate is the handle — nothing inside it is
+interactive), or the ↑/↓ buttons in the settings panel, which are also the only way to move a
+**hidden** host, since it has no card to grab.
+- **`hidden: true` stops collecting, not just drawing.** A hidden host gets no collector at all —
+  it is hidden because the machine is off, and reconnect-looping against a dead address every 10s
+  is worse than useless. This is the opposite of the kind filter, which is a pure view (a
+  filtered-out host keeps collecting and is instantly correct when unfiltered). Do not "unify"
+  them.
+- `validate()` keeps `hidden` only when it is literally `true`, so a visible host carries no flag
+  and hosts.json stays readable. An all-hidden list must NOT fall back to `DEFAULT_HOSTS` (that
+  would resurrect hosts the user hid) — `test/hosts.test.js` pins this.
+- **`WatcherService.setHosts` must refresh `client.host` on hosts it keeps.** A collector emits
+  `host: this.host` with every snapshot, so without that assignment the renderer keeps being told
+  the *old* rack position and a drag appears to do nothing for every host already running — the
+  hosts.json write was correct and the rack did not move. Found 2026-08-13 by dragging a card in
+  the real app; no test caught it because it lives in the gap between the two processes. A URL
+  change now also forces a restart (it always should have — the old code kept the stale connection).
+
+### Card sizing (revised 2026-08-13)
+Bryan's report was "the entry is not scaling properly at all; very difficult to find a good size
+that fits the window." Three separate causes, all fixed:
+1. **The awkward band.** Track minimum was 330px while the wells stack below ~430px of card, so
+   every window width between roughly 700 and 900 gave two *stacked* (double-height) cards. The
+   track minimum is now the side-by-side threshold itself (`--card-min`, default 470px): a second
+   column only forms when both cards can keep their instruments abreast. Stacking is left for a
+   genuinely narrow window, where it is the only option.
+2. **`align-items: start` on `#cards`.** A blanking panel beside a running module was being
+   stretched to the running card's height — an empty graphite slab three times taller than the one
+   word on it. Idle cards are 81px now regardless of their neighbours.
+3. **`minmax(min(var(--card-min), 100%), 1fr)`.** A bare `470px` minimum is a hard floor, so at a
+   340px window every card stayed 470px wide and the whole rack scrolled sideways. The `min()`
+   lets the last column collapse to whatever is actually there.
+
+**Top bar `SIZE` control** (persisted to `localStorage['comfyuiwatcher-card-size']`) sets TWO things
+per body class: `--card-min` (400 / 470 / 620px — how many modules fit across) and **`--card-zoom`
+(0.82 / 1 / 1.18), applied as `zoom` on `.job-card`**.
+- **The zoom is what makes the control work at all.** Column count alone was invisible at Bryan's
+  own window size: at 785px wide all three settings still fit exactly one column, so his verdict
+  was "the compact, normal and large dropdown does not appear to do anything" (2026-08-13). Zoom
+  scales the whole faceplate — dial, numerals, silkscreen, bolts — at any window width.
+- `zoom`, not `transform: scale()`: zoom scales layout space, so the card still fills its track,
+  still sets its own height, and its container-query width becomes track/zoom (which is what keeps
+  a zoomed-out module side by side instead of stacking). A transform would leave the original box
+  reserved and overlap its neighbours.
+- **Anything comparing a mouse coordinate to a card rect must divide by the zoom.** In this
+  Chromium `getBoundingClientRect()` on a zoomed element reports its own scaled space (a card in a
+  736px track measures 898 at zoom 0.82) while `event.clientX` stays in viewport pixels. The
+  drag-to-reorder midpoint got this wrong at first: dropping on the right half moved the module
+  left on every size except Normal. Verified after the fix at all three zooms, both halves.
+- Playwright's `dragAndDrop` cannot settle a zoomed element ("visible and stable" then retries
+  forever). Drive drag tests with synthetic `DragEvent`s at a computed VISUAL x
+  (`(rect.left + rect.width * f) * zoom`) instead.
+- **A container query on `container-type: inline-size` measures the CONTENT box.** The stacking
+  breakpoint of 358px is therefore about a 392px card once padding and border are counted, and
+  every `--card-min` has to clear it *in those terms* or a size setting would stack its own default
+  width. This cost one wrong pass at 385px.
+- The meter well centres its dial (`justify-content: center`): the well is as tall as the readout
+  beside it, and on a narrow module the instrument otherwise sat with a hand's width of empty well
+  under it.
+- Every top-bar dropdown is styled by `#topbar-controls select`, not by id. `#kind-select` had
+  never been styled and sat in the rack faceplate as a raw blue Windows combobox. Same trap in the
+  settings panel: **a flat `background-color` does not displace the native `<select>` widget, a
+  gradient does** (`appearance: none` would too, but it drops the caret and the CSP here forbids
+  the `data:` URI a replacement glyph needs).
+- The title strip yields before the controls do (`min-width: 0` + ellipsis, gone below 580px) — a
+  third dropdown made it print straight through the selects at ~560px.
+
+### Step-Rate and ETA Estimation (rewritten 2026-08-13 against a live batch job)
+`_progressHistory` keeps `{value, atMs, node}` samples over a 20s window; `stepsPerSec` is the
+**average of the per-step intervals** in it, with anything over 3x the median dropped as a pause —
+the same shape `aitoolkit-client.js` arrived at, for the same reason (one 40s gap inside the window
+otherwise halves the figure and the ETA with it). Recent rate, not a lifetime average: a job's early
+steps are not representative once caching/skip-style techniques are in play (see the EasyCache
+findings in [[project-minimax-h3-attention-setup]]). `etaSec` is `null` unless there is a rate AND
+`max > 0`, never a fabricated number, same principle guiTOP's `host-stats.js` follows for CPU
+percent.
+
+**THE WINDOW MUST BE THROWN AWAY WHEN THE PROGRESS BAR RESTARTS.** This was the bug behind Bryan's
+"the sync is not working, the dial only starts to register when there's 2 steps left" (2026-08-13).
+His Flux2-Klein dataset workflow is a **batch**: the same sampler node emits `value` 1..8, then
+immediately 1..8 again for the next image, all under **one prompt_id** — verified by tapping the WS
+directly (`watcher.progress value=8 max=8 node=9` at t+80.2s, `value=1` at t+84.0s). The old
+estimator took `(last - first)` across the window, so for the first ~15s of every image the window
+still held 6,7,8 from the previous one, the delta was negative, and the rate was `null` — needle at
+the stop under NO SIGNAL. It recovered only once those samples aged out, around step 6 of 8. STEPS
+LEFT was right the whole time because it reads `value` and never the window, which is exactly why
+the two readouts disagreed.
+- A **node change** resets the window too: a tiled VAE decode runs its own bar with its own max, and
+  splicing two bars together measures nothing.
+- A **repeated value** is a duplicate, not a stalled step — a job submitted under our own clientId
+  arrives twice (ComfyUI's targeted message plus the relay's broadcast copy). Skip the sample; do
+  NOT treat it as a restart.
+- **The window keeps its last 4 samples however old they are** (`RATE_MIN_SAMPLES_KEPT`). A time
+  window alone reports "no rate" on the job that most needs one: MiniMax H3 video runs 14-30 s/it,
+  so a 20s window would hold a single sample and the needle would never move for the entire run.
+- Two samples (one interval) is enough to publish a rate here, unlike the trainer's three: sampler
+  steps are uniform, the samples are push-driven rather than 1s-polled (no whole-second
+  quantisation), and a restart empties the window instead of poisoning it. That is what makes the
+  needle come alive one step into a run rather than six.
+- **A stub cannot find this class of bug and neither can a unit test written from the docs** — it
+  took a WS tap against the real server while Bryan's own workflow ran. Same lesson as the
+  ai-toolkit cached-row skew: measure a rate against the actual server before believing it.
+
+### Batch position — "Image 3 / 28" (added 2026-08-13)
+A dataset workflow is ONE prompt that runs the sampler once per prompt line, so "Step 3 / 8" repeats
+for every image with nothing saying where in the run you are.
+- **The count is observed, not told to us**: `pass` increments on every bar restart for the same node
+  (`_onProgress`), resets on a new prompt or a change of node. Nothing in ComfyUI's protocol marks a
+  list-expanded item.
+- **The total needs the relay.** `execution._async_map_node_over_list` knows it (`max_len_input`), so
+  `comfyui-relay/__init__.py` wraps that internal function and broadcasts `watcher.batch`
+  `{prompt_id, node, total}` once per node run. It is written to fail into a no-op: if the signature
+  changes, ComfyUI's execution is untouched and the widget simply loses the denominator. **Editing
+  the relay means re-copying it into both installs AND restarting ComfyUI** — until then a host
+  shows `Image 3` with no total, which is the honest fallback, never a guessed `/ 1`.
+- Totals are keyed by node id (`_batchTotals`) and cleared per prompt: a decode node's 28 is not the
+  sampler's 28 by coincidence, and showing one against the other would be luck, not logic.
+- **A known rate is never replaced by `null` inside one job.** Emptying the rate window at each item
+  boundary left the first step of every image unmeasurable, so `stepsPerSec` went null for ~3s out of
+  every ~28s. That is what actually made the dial blink; holding the last measurement is honest
+  (same work, same size, same model) and it is cleared on `execution_start`, a new prompt_id, or a
+  node change.
+- The bargraph and STEPS LEFT stay **per item** on purpose. They answer "how far through this image",
+  and the batch line answers "which image" — mixing the two into one overall percentage would make
+  the step count and the bar disagree.
 
 ### `executing` with `node: null`
 Only clears `currentJob` if it was already marked `finished` (by a prior `execution_success` /
@@ -359,12 +539,127 @@ Only clears `currentJob` if it was already marked `finished` (by a prior `execut
 this was wrong in an early version of this project's own test, not the collector; fixed 2026-08-11,
 see `test/comfyui-client.test.js`.
 
+## Reactor panel — the second card widget (added 2026-08-14)
+`renderer/widgets/reactor-panel.js` + `styles/reactor.css`. **Not a skin**: skins are pure CSS over
+the rack card's one DOM, this has its own markup and instruments, so it is its own module the way
+guiTOP carries `GpuCardBars` alongside `GpuCardCorvette`. `renderer.js` holds a `WIDGETS` map
+(`card` / `reactor`); a card is rebuilt when its **widget family** changes, never when only the
+paint does. One layout, two idioms picked at build time: **`room`** (P1 control room — painted
+steel, ivory faces, incandescent lamps, split-flap counter) and **`console`** (P2 reactor console —
+glass and xenon, lit arcs, nixie tubes). Both live in the same top-bar dropdown as the three skins,
+because from the desk "what does the rack look like" is one question.
+
+Everything on the panel is driven by a field a collector actually reports — that is what makes the
+density honest, and it is the rule to hold any addition to:
+- **Annunciator bank**, 8 tiles: Reactor Run / Queued / Batch Run / No Step Data / Relay Absent /
+  Cycle Done / Fault / Offline. **An unlit tile is a real "not true"**, never "no room left". A tile
+  flashes 3× on first becoming true, then holds. `relay` was the only snapshot field the rack card
+  ignored; here it has a lamp, and it follows the collector's own rule (false is claimed only after
+  a job has run 10s with no relay traffic, so an idle host never accuses anyone).
+- **Twin rate dials** — the rack card's single face split at the crossover and mirrored, pivots at
+  the outer edges, both arcs closing inward around the readout (Bryan picked this facing over
+  back-to-back on 2026-08-13). Both movements read UP for more; "further right is faster" cannot
+  survive a mirrored pair. **NO NUMBERS on the arcs** — ticks, two end words, and the exact figure
+  in the tell-tale column between them, like a fuel gauge. Only the half holding the reading lights;
+  the other rests at its stop at 0.16 opacity. Marks come from lcd.js's hand-written tables via the
+  exported `faceSpec()`, so the **Dials** range setting still governs, and sampling splits at 1:1
+  while training splits at the geometric middle of its range (its end word prints that, e.g. `8s`).
+- **Cycle progress movement** (linear 0–100%) and a **step counter**: split-flap in the room idiom,
+  nixie in the console one. Fixed width, LEADING ZEROS — a mechanical counter has a wheel in every
+  position — but it **grows** if a job needs more digits than the kind's default (2 sampler /
+  4 trainer), because truncating a real number to fit the mechanism would be a lie. No step data
+  blanks the mechanism and prints N/A; zeros are for positions a real number does not reach.
+  **Build the wheels at construction**, not on first reading: the N/A overlay is positioned over the
+  window, and an empty mechanism gives it no height, so an idle host showed an empty box.
+- **LED bulb banks replace the progress bar outright** (the bar was the same fact in a weaker
+  language, and `Step X/Y · %` moved onto the bank). Row 1 is 20 bulbs across the current node. Row 2
+  is one bulb per image and **exists only when the relay reported an item total**, so the socket
+  count is itself a measurement — capped at 40 sockets.
+- **Rate recorder**, 60s of measured rate: time left→right, the pen is now, height is the dials' own
+  log scale, so higher is faster on both. The pen lifts on a gap rather than interpolating across a
+  stall. **It has to say what it is** — unlabelled it reads as a level gauge, not a rate over time
+  ("I don't know how to interpret it", Bryan 2026-08-14). So: both ends of the scale printed down the
+  left edge in the units the dial prints (`20 it/s` / `20 s/it`), a dashed line at the 1:1 crossover
+  when the face spans one, and the time axis stated in the caption (`60 s ago → now`) rather than
+  tagged inside the plot, where the right-hand label sits on the trace exactly when the trace is
+  interesting. Labels are HTML over the SVG: the chart is drawn `preserveAspectRatio="none"` so it can
+  stretch, and any `<text>` inside it stretches too.
+- **Four windows under the step counter, and what they hold depends on the kind** (2026-08-14, Bryan
+  asked for the versions):
+  - **`comfyui`: what the host is BUILT FROM**, laid out two per row as **ComfyUI | Driver** over
+    **PyTorch | CUDA** (Bryan's arrangement — the app and the driver on top, what the app is built
+    against underneath; `COMFY_WINDOWS` order IS the layout). The third window **relabels itself**
+    from the detected GPU stack: CUDA, ROCm, XPU or CPU. Host
+    facts, not readings, so they are set in plate ink with no glow (`.p-count-val--static`), and a
+    window with nothing behind it is **removed**, not dashed — `wrap.hidden`, with
+    `.p-count-wrap[hidden] { display: none }` in reactor.css, because an author `display` beats the
+    UA `[hidden]` rule (the exact trap that left a permanent "BATCH ETA --" on the rack card).
+  - **`aitoolkit`: ETA / Elapsed / Loss / Queue**, the live figures — a trainer has no endpoint that
+    reports versions, so it keeps the counters. Same column, different contents; the panel structure
+    does not fork.
+- **Tell-tale line** (`.p-tell`, generation panels only): Elapsed / ETA / Batch ETA / Queue in one
+  strip under the bulb banks, ~18px against the 83px the windows cost. The live figures were NOT
+  dropped when the windows became build info — ETA is the most-asked question of a watcher, and a
+  panel that prints a driver version but not "when is it done" is a worse instrument. Batch ETA
+  hides on a non-batch job, same rule as the rack card.
+- The identity plate is metadata only. **The counters/windows live in the third column of the
+  instrument row, under the step counter** — a small mechanism in a dial-height well left a third of
+  the panel empty, and a separate full-width counters row cost another 50px. One change fixed both.
+- **INSTRUMENTS DO NOT GROW WITHOUT LIMIT** (`max-height` on the dial and progress SVGs, a fixed
+  height on the recorder strip). At `width: 100%` an SVG scales with the panel, so a single module in
+  a wide window drew a foot-wide dial and a 150px recorder — the panel got taller the more room it
+  was given, which is the opposite of what the SIZE control is for. Past the cap the instrument
+  centres in its well, which reads as gear mounted in a panel cutout.
+- Layout is one row of eight annunciators and a one-row identity plate above ~620px of panel content,
+  4x2 and two rows below it. Tightening those two plus the counter move took a running panel from
+  545px to ~500 at 618px wide (and it no longer inflates with window width).
+- **The pointers register with lcd.js's shared rAF loop** via the exported `createNeedle()` — three
+  needles per panel × N hosts is exactly the per-card timer problem that loop exists to avoid, and
+  `destroyReactorPanel` must give them back.
+- A panel collapses to header + annunciators (`.pan--blank`) only when the unit is NOT THERE; an
+  online-idle host keeps its instruments, same call as the rack card. The **cycle-progress SVG is
+  clipped** (`overflow: hidden`) because its pivot sits below the face and the hub otherwise paints a
+  red blob over the legend.
+- Cost: **~500px tall per host** at Normal (was 545 before the 2026-08-14 tightening pass), so
+  `--card-min` is raised per size class in reactor.css (480/540/660). A compact variant dropping the
+  recorder was discussed and is NOT built.
+
 ## Skins (added 2026-08-12)
 Same mechanism as [[project-guitop]]: a `skin-*` class on `<body>`, persisted to
 `localStorage['comfyuiwatcher-skin']`, switched from a `<select id="skin-select">` in the top bar.
 `renderer.js` owns the three lines that do it; `styles/main.css` holds STRUCTURE plus the default
 **1U Rack** look, and `styles/skins.css` holds alternates as token/surface overrides.
+
+`renderer/mock-skins.html` is the live mockup for judging one — and since 2026-08-14 for judging
+**all five looks**, reactor panels included: it dispatches on widget family exactly the way
+renderer.js does. Real stylesheets, real widgets, fake data that MOVES (steps advance, a batch
+restarts its bar, rates wander), every card state on one page — running with steps, running with
+none (and `relay: false`, the one host that lights RELAY ABSENT), training, finished, failed,
+online-idle, offline.
+Serve the repo (`npx http-server . -p 8791`) rather than opening it as `file://`; a skin decided off
+a static card is a skin decided off the one frame that happened to look good.
 - **`rack`** (default) — bolted graphite faceplate, ivory printed dial, amber lamps.
+- **`halo`** (added 2026-08-14, Bryan asked for "obsidian glass but not a retro dial — ultra
+  modern, borderline futuristic, glass and metal") — obsidian field, smoked-glass panes in a
+  machined frame, xenon-azure light. Nothing printed, engraved or bolted. **The instrument is the
+  signature and the only bright thing on the card:** the dial pane and the hub are gone, and the
+  rate reads off a **lit arc** — a dim titanium track over the full sweep whose measured part
+  lights in xenon, crossed at the reading by the needle, which is dashed down to its outer 26
+  units so it shows as a floating beam rather than a pointer on a pivot. The backlight is a pool
+  of light rising from the pivot (`.meter` background), tied to `.meter--dark` — the lamp, never
+  the reading. Palette is deliberately not glass's cyan and not rack's amber: two skins glowing the
+  same colour make the dropdown feel like a brightness control.
+  - **The arc is drawn by `lcd.js` for every skin and hidden in `main.css`** (`.meter-arc-track` /
+    `.meter-arc-value`); only this skin paints it. It carries no information the needle does not —
+    it is a second rendering of one value, which is why hiding it elsewhere is a skin decision and
+    not a lost readout, and why every skin still shares ONE DOM. The value path is driven from
+    `state.apply()`, so it swings with the same ballistics and parks at zero length. **It is hidden
+    below a hair of length on purpose** — round caps on a zero-length dash paint a lit dot, the
+    same trap the old arc gauge hit, and a dot at the stop would read as a measurement.
+  - Also a modern rewrite of the ornaments: jewel lamps become slivers of edge light, the LED
+    bargraph becomes a hairline capsule (`.jc-bar-cells` hidden — cells are a segmented-display
+    idea), dial numbers are set in the mono face because on this instrument they are data, not
+    silkscreen.
 - **`glass`** — the look that shipped as 0.0.2: near-black blue field, translucent gradient cards,
   cyan glow, no bolts, no engraving. The instruments stay (the meter is what this app *is* now)
   but render as a **backlit** dial: dark glass face, cyan graduations, glowing pointer. Note it
@@ -447,6 +742,16 @@ Bryan's standing instruction (2026-08-12): that phrase is one job, not three, an
 
 `dist/` is gitignored — the release is the only place the artifacts are published from.
 
+## LEAVE THE APP RUNNING when the work is done
+Bryan signs off by using the app, not by reading a diff or a screenshot. A playwright/CDP-driven
+instance dies with its driver, so after the screenshot pass **relaunch detached and confirm the
+window is up** before reporting:
+`Start-Process E:\vs_code_projects\comfyuiWATCHER\node_modules\electron\dist\electron.exe
+E:\vs_code_projects\comfyuiWATCHER` (with `ELECTRON_RUN_AS_NODE` cleared), then
+`Get-Process electron` should show one with `MainWindowTitle` = comfyuiWATCHER.
+Do not ask about shipping until he has had the running build to try. He has had to ask for this
+more than once — 2026-08-13 was the second time.
+
 ## Screenshotting the running app (playwright-core `_electron`)
 Three traps on this machine, all cost time on 2026-08-12 — copy the working recipe:
 1. **Script parse off E: is slow.** `document.readyState` can still be `"loading"` ~2.5s after
@@ -494,9 +799,23 @@ After the fixes the collector tracks the trainer's own figure (2.48–2.68 s/it 
 reported 2.55–2.85) with a consistent ETA. Still unseen live: queued, finished and `stopped`
 transitions. Version still 0.0.3, no installer rebuilt.
 
+## Status (2026-08-13 PM, rack order + sizing + the batch-rate bug)
+Four things Bryan asked for off a screenshot of the running app, all verified in the real app rather
+than by test alone (`test/` is at 4 files, all passing):
+1. **Reorder** — drag a card, or the settings-panel arrows. Driven end to end via playwright:
+   visual order, `hosts.json` order and the settings list all agree after a drag.
+2. **Hide without removing** — `hidden: true`, card gone and collector stopped, entry kept.
+3. **Sizing** — see "Card sizing" above. Measured at 340/430/520/640/785/850/900/1400 wide.
+4. **The dial lagging the digits** — see "Step-Rate and ETA Estimation". Root cause was the batch
+   job restarting the progress bar; found with a live WS tap, fixed, and the live card then read
+   `3.51 s/it` at step 7/8 with the needle just left of centre.
+
+Version still 0.0.5, nothing rebuilt or released for this yet.
+
 **Not built yet / next:**
 1. Window state persistence, tray/minimize (guiTOP playbook).
-2. `hosts.json` lives in `userData` (`%APPDATA%/comfyuiwatcher`); no UI for reordering hosts.
+2. No UI for *editing* a host (name/url/kind) — only add, remove, hide, reorder. `hosts.json` in
+   `userData` (`%APPDATA%/comfyuiwatcher`) is still the way to change a URL.
 3. Installer/AppImage rebuild + release once Bryan signs off on the new look.
 4. Watch the training card against the real ai-toolkit UI server on the next run he starts.
 5. Other trainers (Musubi/EZ-Musubi are on this machine) — needs a log-tailing collector, since

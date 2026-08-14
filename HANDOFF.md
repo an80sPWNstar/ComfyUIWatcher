@@ -193,3 +193,278 @@ Append-only session log. Newest entry wins; older entries are history, not instr
   driver cannot launch a packaged app) and confirmed relay.dir -> resources\comfyui-relay,
   exists:true, panel visible on first run.
 - Linux built in WSL; resources/comfyui-relay present in linux-unpacked too.
+
+## 2026-08-13 12:xx -- rack order, hide, sizing, batch-rate bug (session: opus/CLI)
+- Bryan's 4 asks off a live screenshot, all done and looked at in the real app; NOT committed,
+  NOT released. Version still 0.0.5. Tree is dirty: main.js, service.js, hosts.js,
+  comfyui-client.js, renderer.js, settings-panel.js, index.html, main.css, skins.css, CLAUDE.md,
+  + new test/hosts.test.js. `npm test` = 4 files passing.
+- REAL BUG FIXED, root-caused off a live WS tap: a batch workflow re-runs the same sampler node so
+  progress `value` restarts (8 -> 1) under one prompt_id. The old (last-first)/window rate went
+  negative for ~15s of every image => needle dead until ~2 steps left while STEPS LEFT was right.
+  Window is now reset on a bar restart / node change, duplicates skipped, per-interval trimmed
+  average, last 4 samples kept regardless of age (H3 video at 30 s/it never had a rate before).
+- `hidden: true` in hosts.json = keep the entry, stop collecting (no card, no reconnect loop).
+  List order = rack order, applied as CSS `order` from snapshot.host.order.
+- WatcherService now refreshes client.host on kept hosts (a collector emitted its stale host object,
+  so reorders never reached the renderer) and restarts on a URL change.
+- I DID write to Bryan's real %APPDATA%/comfyuiwatcher/hosts.json while driving the UI; restored to
+  New Main / Secondary / AI-Toolkit, nothing hidden.
+- Next session: nothing in flight. If he signs off, this is a 0.0.6 release (see ship checklist).
+
+## 2026-08-13 (later) -- dial ranges + SIZE control actually scales
+- Sampling dial default is now +/-20 (was +/-100); ranges 5/20/100 selectable in the hosts panel
+  under "Dials", training 10/30/60 (default 60). Faces are hand-written mark tables in lcd.js and
+  reprint IN PLACE via meter.refreshFace() -- no card rebuild, needle keeps its reading.
+- SIZE (Compact/Normal/Large) now also sets --card-zoom (0.82/1/1.18) applied as `zoom` on the card.
+  Column count alone was invisible at ~785px windows, where all three settings fit one column.
+- TRAP: getBoundingClientRect on a zoomed card is in the card's own scaled space, event.clientX is
+  viewport px. The drag midpoint needed `/ zoom` -- without it, right-half drops moved cards left on
+  Compact and Large. Verified both halves at all three zooms with synthetic DragEvents (playwright
+  dragAndDrop cannot settle a zoomed element).
+- Still uncommitted, still 0.0.5. App left running for Bryan to test.
+
+## 2026-08-13 (later still) -- batch counter + the dial stops blinking
+- Card shows "Image 3 / 28" in the bargraph meta row. Count = observed bar restarts per node; TOTAL
+  comes from a new relay broadcast (watcher.batch) because nothing in ComfyUI's protocol carries it.
+  Relay wraps execution._async_map_node_over_list (fails into a no-op if that signature changes).
+  RELAY COPIED into both installs; ComfyUI must be RESTARTED before the "/ 28" part appears. Until
+  then the card reads "Image 3", which is the honest fallback.
+- Dial no longer flashes: the lamp follows the job (.meter--dark) and is separate from "no reading"
+  (.meter--nosignal). Also: a known rate is never overwritten with null inside one job, which is what
+  actually caused most of the blinking (window emptied at each batch item).
+- NO SIGNAL legend now switches to dark ink on a lit face.
+- 4 test files pass, incl. new pass-counting / watcher.batch / rate-held-across-item assertions.
+- Bryan's zimage dataset workflows had flux2-vae (128ch) against a 16ch Z-Image latent -> both
+  dataset_zimage_turbo.json and dataset_zimage_base.json now use ae.safetensors (.bak beside each).
+  Re-ran the failed prompt: success, 28 images.
+- Still uncommitted, still 0.0.5.
+
+## 2026-08-13 20:05 -- batch ETA + Flux.2 attention benchmark
+
+- **Batch ETA shipped in the card.** Legend row is now Elapsed / ETA / Batch ETA / Rate. ETA stays
+  per-image; Batch ETA covers every remaining item. Per-item cost is MEASURED (bar restart to bar
+  restart, so it includes decode + save + model shuffle), median of last 8, falling back to
+  maxSteps/rate only until the first item completes. Null -> slot hidden unless the relay supplied
+  the item total, same honesty rule as the batch counter.
+- SCOPE LIMIT, deliberate: covers the current NODE's remaining items. ComfyUI runs a list-expanded
+  graph node by node (28 samples, THEN 28 decodes), so a later stage is not in the figure and it
+  reads slightly short near the end of sampling. Hence "Batch ETA", not "Job ETA".
+- setJobEta hides the .jc-legend WRAPPER, not the value span -- legendValue() nests the value inside
+  a wrapper that also holds the label, so hiding the span strands the label.
+- New consts: ITEM_SAMPLES_KEPT = 8; _itemDurations resets everywhere _batchTotals resets.
+- 4 test files pass, incl. a new case for null-without-total, the fallback, and the switch to
+  measured timing once an item completes.
+- Still uncommitted, still 0.0.5. 16 modified + several untracked mock html files.
+
+Outside this repo, same session (context for whoever picks it up):
+- **Flux.2 Klein bf16 + 2 reference images was faulting** in comfy_aimdo (`Fault failed: 2`).
+  FIX = `--disable-dynamic-vram` on New Main (already in Comfy Desktop's installations.json).
+  NOT pinned memory, NOT the 0.33.1 update, NOT the NVIDIA sysmem-fallback policy -- all tested and
+  eliminated. See memory project-h3-comfy-aimdo-crash for the elimination table.
+- Attention benchmark on the 5070 Ti (Flux.2 Klein 9B bf16, 6 steps, 896x1152, 2 refs, 2 runs each
+  after a discarded warm-up): pytorch 17.75s, sage 13.85s, comfy-kitchen 13.81s. Sage and CK are a
+  dead heat (0.3% apart, ~1.28x over baseline). Same-seed pixel diff vs pytorch: 35-49 dB PSNR.
+- NEW MAIN WAS LEFT STOPPED at session end (benchmark owned port 8188). Restart it from the Comfy
+  Desktop app. Stimma-5060Ti on 8189 is a separate install and was never touched.
+- Known broken, pre-existing: ComfyUI-TeaCache fails to import on 0.33.1
+  (`precompute_freqs_cis` gone from comfy.ldm.lightricks.model). ~20 saved workflow JSONs fail a
+  startup scan with cp1252 UnicodeDecodeError (scanner opens them without encoding='utf-8').
+
+## 2026-08-13 20:20 -- note for the skin session
+
+If you are working on new skins, read this first -- the card gained an element tonight:
+
+- **New legend slot `.jc-jobeta` ("Batch ETA")**, sitting between `.jc-eta` and `.jc-rate`. Same
+  structure as its neighbours: a `.jc-legend` wrapper holding `.jc-legend-label` +
+  `.jc-legend-value .jc-jobeta`.
+- **`styles/skins.css` was NOT touched** -- it inherits generic `.jc-legend-value` styling in both
+  skins. If it needs per-skin treatment, that is unwritten work, not a regression.
+- **The legend row is now 3 OR 4 items wide.** `setJobEta()` hides the whole wrapper on any job with
+  no batch total (single-image jobs, and any run where the relay did not report one), so a skin must
+  look right at both counts -- do not style the row by fixed position or assume a count.
+- Nothing else in the card DOM changed.
+
+## 2026-08-13 21:41 -- skin session (Obsidian Halo + reactor-panel design)
+
+- SHIPPED IN-TREE: third skin **Obsidian Halo** (`body.skin-halo`), all styling in `styles/skins.css`.
+  Registered in `renderer/renderer.js` (SKINS array) and `renderer/index.html` (one <option>).
+- `renderer/widgets/lcd.js`: `createRateMeter()` now also emits `.meter-arc-track` + `.meter-arc-value`
+  (two paths on the tick circle) and drives the value path from `state.apply()`. Every skin gets them;
+  `styles/skins.css` hides both by default and only skin-halo paints them. No behaviour change to the
+  needle, ballistics or honesty rules. NOT job-card.js -- that file is untouched by me.
+- `styles/main.css`: ONE line added, `.jc-legend[hidden] { display: none; }`. `setJobEta()` sets
+  `.hidden` on the wrapper, but the author rule `.jc-legend { display: flex }` beats the UA
+  `[hidden]` rule, so Batch ETA never actually hid -- every non-batch card printed "BATCH ETA --".
+  PLEASE KEEP THIS LINE if you rewrite main.css.
+- Verified all three skins at 3-item and 4-item legend rows; `.jc-jobeta` needs no per-skin styling.
+- DESIGN ONLY, nothing wired: reactor control-panel direction (annunciator bank, twin cluster dials,
+  LED bulb banks, split-flap / nixie step counters) lives in new `renderer/mock-*.html` files. It is a
+  new CARD WIDGET, not a skin -- see the report to the other session before anyone edits job-card.js.
+- Did not commit. Tree left as found plus the above.
+
+## 2026-08-13 21:55 -- correction to my 20:05 / 20:20 entries
+
+- My claim that `.jc-jobeta` "hides itself on non-batch jobs" was FALSE as shipped. `setJobEta()`
+  set `.hidden` on the `.jc-legend` wrapper, but the author rule `.jc-legend { display: flex }`
+  (main.css:833) beats the UA stylesheet's `[hidden] { display: none }` regardless of specificity,
+  so every non-batch card printed a permanent "BATCH ETA --". The skin session found it and added
+  `.jc-legend[hidden] { display: none; }` at main.css:844. Verified present; keep that line.
+- I asserted the hide worked without ever looking at a rendered card. Treat the behaviour notes in
+  my 20:05 entry as reasoned-from-code, not observed.
+- Verified after the skin session's changes: 4 test files still pass, and the meter arc paths are
+  `display: none` by default in skins.css so rack/glass are unaffected.
+
+## 2026-08-13 21:55 -- skin session, design record before sign-off
+
+Decisions Bryan made tonight on the REACTOR PANEL direction. Nothing below is wired into the app;
+it is a scope decision for him. The live record is `renderer/mock-reactor-panel.html` (both idioms,
+moving fake data, heavily commented) plus `mock-step-counter.html` (the counter comparison).
+
+- TWO IDIOMS, ONE LAYOUT: `pan--room` (1960s painted steel, ivory faces, incandescent lamps) and
+  `pan--console` (glass + xenon). Same DOM, per-idiom CSS.
+- ANNUNCIATOR BANK, 8 tiles in 2 rows of 4: Reactor Run / Queued / Batch Run / No Step Data /
+  Relay Absent / Cycle Done / Fault / Offline. Every one is a REAL collector condition; unlit means
+  "not true", never "no room left". A tile flashes 3x on first becoming true, then holds.
+  `relay: false` is the only snapshot field today's card ignores.
+- TWIN RATE DIALS, one movement per half of the log scale, split at 1:1 for sampling and at 6 s/it
+  (coarse/fine) for training. Pivot on the vertical centreline, each quadrant 90 degrees centred on
+  the horizontal. Two facings built and switchable in the mock (`#facing-select`): 'out' = pivots
+  inboard, arcs to the outer edges (back to back); 'in' = pivots outboard, arcs closing on the
+  middle. BRYAN HAD NOT PICKED ONE at sign-off.
+  - NO NUMBERS on the arcs, like a fuel gauge: ticks, end words (SLOW / 1:1 / FAST), and the exact
+    figure printed in the tell-tale column between the two movements.
+  - Only the half holding the reading lights; the other rests at its stop at 0.16 opacity.
+  - The console needle is a dash-clipped beam -- the dash figures are tied to the needle LENGTH, so
+    changing the radius without retuning them hides the needle.
+- LED BULB BANKS replace the old progress bar entirely (the bar was the same fact in a weaker
+  language). Row 1 = step progress, 20 bulbs. Row 2 = workflow, ONE BULB PER IMAGE, and it exists
+  only when the relay reported a batch total, so the socket count is itself measured. `Step X/Y . %`
+  moved onto row 1. P1 bulbs are amber domes in chromed collars in a punched strip, with a filament,
+  a specular pip, out-of-phase mains flicker and a strike (dim -> overshoot -> settle); P2 are
+  rounded-square emitters with an instant snap.
+- STEP COUNTER, Bryan's pick: SPLIT-FLAP in the control room, NIXIE in the console. Fixed width
+  (4 digits for a trainer, 2 for a sampler), LEADING ZEROS -- a mechanical counter always shows
+  something. No step data still blanks the mechanism and prints N/A; zeros never mean "unknown".
+  Nixie draws all ten cathodes with the unlit ones faintly visible at slightly different depths --
+  that ghosting is why a nixie cannot be done with a font.
+- ALSO HELD, not dead: "alpha cluster" full-card layout in `mock-card-redesign.html` (two glass
+  domes + fact grid), which Bryan liked before the reactor idea arrived.
+- Rate recorder (60 s strip chart), 4 digital counters and the identity plate round out the panel.
+  Cost: ~490px tall per host. A compact variant would drop the recorder and keep the annunciators.
+
+Working tree at sign-off: unchanged from the other session's state plus my skin work. Nothing
+committed. `npm test` 4/4 green.
+
+## 2026-08-13 22:00 -- skin session, dial facing decided
+
+Correction to my 21:55 entry: Bryan HAS now picked the twin-dial facing. It is **'in'** — pivots at
+the outer edges, both arcs closing toward the middle around the readout. `mock-reactor-panel.html`
+now defaults to it (`let FACING = 'in'`); 'out' stays in the selector for comparison only.
+
+## 2026-08-14 11:35 -- reactor panel BUILT (session: opus/CLI)
+
+- The reactor-panel design from last night is now REAL CODE, not a mock. New files:
+  `renderer/widgets/reactor-panel.js` + `styles/reactor.css`. Nothing else on the panel was
+  invented -- it follows the 21:55 and 22:00 design entries item for item (annunciator bank,
+  twin dials facing 'in', no numbers on the arcs, split-flap in the room idiom / nixie in the
+  console one, LED bulb banks replacing the bar, 60s rate recorder, 4 counters, identity plate).
+- IT IS A SECOND CARD WIDGET, NOT A SKIN. `renderer.js` now holds a `WIDGETS` map and rebuilds a
+  card only when its widget FAMILY changes; skins, filter, size and rack order still never rebuild.
+  Both idioms sit in the existing skin dropdown ("Control Room", "Reactor Console"), same
+  localStorage key. `job-card.js` is UNTOUCHED.
+- Shared-code edits, both additive: `lcd.js` exports `createNeedle()` (panels put their 3 pointers
+  on the ONE rAF loop) and `faceSpec()` (the panel graduates off the same hand-written tables, so
+  the Dials range setting still governs). `main.css` kind-filter selector generalised from
+  `.job-card[data-kind=...]` to `#cards > [data-kind=...]` -- one line, both widgets.
+- `renderer/mock-skins.html` now covers all five looks and dispatches like renderer.js does. It is
+  the surface to judge this on: `npx http-server . -p 8791`, then /renderer/mock-skins.html.
+- Verified in the REAL app (playwright _electron, both idioms, live New Main job: Flux2-Klein,
+  rate 6.11 s/it, steps 0/6, relay active) and across all 8 states in the mock. Two bugs found by
+  looking and fixed: an empty step mechanism collapsed the N/A window on an idle host, and the
+  progress movement's hub painted over its own legend (SVG now clipped).
+- Panel is ~545px tall per host at Normal, so reactor.css raises --card-min to 480/540/660 per size
+  class. The COMPACT VARIANT (drop the recorder) discussed last night is NOT built.
+- `npm test` 4/4 green (renderer widgets have no test harness in this repo -- verification is by
+  eye, as usual here). Version still 0.0.5, nothing committed, nothing released.
+
+## 2026-08-14 15:30 -- reactor panel: real-estate pass + the recorder now reads
+
+Bryan's feedback on the shipped panel: loves the look, wants the space used better, and could not
+interpret the rate recorder. Both addressed, verified in the mock and the real app:
+
+- STEPS LEFT no longer sits alone in a dial-height well. The instrument row's third column is now a
+  STACK: step counter over the four digital counters (ETA / Elapsed / Batch ETA or Loss / Queue),
+  which deletes the old full-width counters row entirely.
+- Annunciators go 8-across (4x2 only below ~620px of panel content); identity plate is one row.
+- **Instruments are capped** (`max-height` on the dial + progress SVGs, fixed 58px recorder strip).
+  Before this the panel got TALLER the wider the window was, because every SVG was width:100%.
+- Recorder is labelled: scale ends down the left edge in the dial's own units, dashed 1:1 line where
+  the face spans it, and the caption states the time axis (`60 s ago -> now`). Labels are HTML over
+  the SVG, never SVG <text> -- the plot is preserveAspectRatio="none" and text would smear.
+- Net: running panel 545px -> ~500px at 618 wide, and no longer inflates with window width.
+- Files touched: `renderer/widgets/reactor-panel.js`, `styles/reactor.css`, CLAUDE.md. Nothing else,
+  and no collector or honesty rule changed. `npm test` 4/4. Still 0.0.5, still uncommitted.
+
+## 2026-08-14 18:20 -- reactor panel: build-info windows (ComfyUI/PyTorch/CUDA/driver)
+
+- Bryan asked for the four windows under STEPS LEFT to show the host's build instead of job figures.
+  Done for `comfyui` panels: ComfyUI / PyTorch / CUDA / NVIDIA driver, in plate ink (facts, not
+  readings). A window with no value is REMOVED, not dashed. `aitoolkit` panels keep ETA / Elapsed /
+  Loss / Queue there -- no trainer endpoint reports versions.
+- The live figures those windows held are NOT lost: new one-line tell-tale strip under the bulb
+  banks (Elapsed / ETA / Batch ETA / Queue) on generation panels, ~18px vs the 83px of windows.
+- Collector: `comfyui-client.js` probes `/system_stats` on connect + every 5 min and emits
+  `snapshot.versions`. CUDA comes off the torch build tag (2.13.0+cu130 -> 13.0). `parseSystemStats`
+  is exported and unit-tested against New Main's real payload (test/comfyui-client.test.js).
+- **DRIVER NEEDS A RELAY UPDATE.** No ComfyUI endpoint reports the NVIDIA driver and no installed
+  node pack exposes it (Crystools' /crystools/monitor/GPU is index+name only). So
+  `comfyui-relay/__init__.py` gained a `GET /watcher/host_info` route (pynvml, falling back to
+  nvidia-smi, cached). The copies in D:\ComfyUI_Installs\{New Main,Secondary} are the OLD relay, so
+  the driver window is currently hidden in the real app -- re-copy the folder into both
+  custom_nodes\comfyui-watcher-relay\ AND restart ComfyUI to light it up. Not done: writing to those
+  installs needs Bryan's approval and a restart would interrupt his queue.
+- Also fixed: fmtSec printed "3m60s" at 239.6s. Same bug existed in job-card.js; fixed in both.
+- Verified in the real app (COMFYUI 0.33.1 / PYTORCH 2.13.0 / CUDA 13.0 read live, driver window
+  correctly absent) and across all 8 mock states. `npm test` 4/4. Still 0.0.5, still uncommitted.
+
+## 2026-08-14 18:35 -- relay copied to both installs (restart pending)
+
+- With Bryan's approval, `comfyui-relay/__init__.py` (124 lines, with /watcher/host_info) copied over
+  D:\ComfyUI_Installs\{New Main,Secondary}\ComfyUI\custom_nodes\comfyui-watcher-relay\. Hashes match
+  the repo copy. NOT restarted -- his call. The DRIVER window lights on the next ComfyUI restart of
+  each instance; the watcher re-probes on WS reconnect, so no action needed in the widget.
+
+## 2026-08-14 19:10 -- accelerator auto-detect (CUDA / ROCm) + window order
+
+- The third build-info window now NAMES ITSELF: CUDA 13.0 on an NVIDIA box, ROCm 6.2 on an AMD one,
+  XPU / CPU where that is what the build is. `detectAccelerator()` in comfyui-client.js reads the
+  torch build tag, because that is the only reliable tell -- ROCm's PyTorch reports torch.cuda,
+  device.type 'cuda' and a 'cuda:0' device name, so /system_stats otherwise looks identical on both
+  stacks. Untagged build => match the card name, report the stack with a NULL version (panel prints
+  "Backend / ROCm"; a name never yields a version).
+- Windows reordered at Bryan's request: ComfyUI | Driver on top, PyTorch | CUDA under them.
+  COMFY_WINDOWS order IS the layout.
+- Relay now probes both vendors for the driver, ordered by torch.version.hip: pynvml/nvidia-smi for
+  NVIDIA, /sys/module/amdgpu/version then rocm-smi for AMD. **Re-copied to both installs again**
+  (hashes match) -- still needs a ComfyUI restart to load, same as before.
+- ROCm is covered by unit tests against synthetic /system_stats payloads only. There is no AMD box
+  on this rack, so nothing on that path has been seen running.
+- `npm test` 4/4 (comfyui-client.test.js now pins CUDA, ROCm, untagged-with-AMD-name, CPU, XPU and
+  the nothing-to-go-on case). Verified in the real app and in the mock, which now carries a ROCm
+  host and a no-version host. Still 0.0.5, still uncommitted.
+
+## 2026-08-14 20:00 -- v0.0.6 SHIPPED (reactor panel)
+
+- Version bumped 0.0.5 -> 0.0.6. Everything uncommitted since v0.0.5 goes out in one commit: rack
+  order/drag, hide-a-host, SIZE zoom, dial ranges + training face, batch counter + batch ETA, the
+  batch-rate fix, Obsidian Halo, the reactor panel (both idioms), build-info windows with CUDA/ROCm
+  auto-detect, and the relay's /watcher/host_info route.
+- Windows installer built and VERIFIED BY RUNNING IT (not by exit code): dist/win-unpacked launched
+  under the playwright driver, Control Room look, live New Main panel showing a real finished job
+  (CYCLE DONE, 175/175, minimax_h3) and the build windows reading 0.33.1 / 2.13.0 / CUDA 13.0. Zero
+  console errors. asar confirmed to contain renderer/widgets/reactor-panel.js + styles/reactor.css
+  and NOT the mocks; resources/comfyui-relay/__init__.py carries host_info + the amdgpu path.
+- Linux AppImage + deb built in WSL (~/cw-build) and copied into dist/.
+- The mock-*.html files are now COMMITTED as the design record / judging surface. They are excluded
+  from the packaged build by the existing "!renderer/mock-*.html" glob.

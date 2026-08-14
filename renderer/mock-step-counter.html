@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — step counter options (live)</title>
+  <!-- The STEPS LEFT window on the reactor panel, done three ways. All three count real steps and
+       obey the same honesty rule the panel already has: no step data shows N/A, never a zero.
+       Each mechanism is shown in both idioms — P1 control room (1960s hardware) and P2 console
+       (modern) — and every counter on the page is driven by the same ticking job, so what you are
+       judging is the mechanism, not the number.
+       The bottom row runs a batch job: watch what each does when the count RESETS from 1 back to 8
+       between images, which is the move it makes most often. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <style>
+    body { overflow: auto; background: #0A0C0E; }
+    #app { height: auto; min-height: 100vh; }
+    .mock-head { font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase; color: #8b9096; padding: 14px 16px 0; }
+    .mock-head b { color: #FFA22C; }
+    .mock-sub { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: #6a7076; padding: 3px 16px 0; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 14px; }
+    .cell {
+      border-radius: 4px; padding: 16px 14px 12px; text-align: center;
+      font-family: 'Rajdhani', sans-serif;
+    }
+    .cell--room {
+      --lit: #FFA22C;
+      background: repeating-linear-gradient(90deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px), linear-gradient(180deg, #34383B, #2B2F32 16%, #24282B);
+      border: 1px solid #0A0C0E; box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 6px 18px rgba(0,0,0,.55);
+    }
+    .cell--console {
+      --lit: #7FA8FF; border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02) 34%, rgba(255,255,255,.012));
+      border: 1px solid rgba(255,255,255,.075); box-shadow: 0 1px 0 rgba(255,255,255,.09) inset, 0 18px 40px -20px rgba(0,0,0,.95);
+    }
+    .cell-cap { display: block; margin-top: 12px; font-size: 8.5px; font-weight: 600; letter-spacing: .24em; text-transform: uppercase; color: #7C8288; }
+    .cell--console .cell-cap { color: rgba(230,236,246,.4); }
+    .cell-name { display: block; margin-bottom: 12px; font-size: 10px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: var(--lit); }
+    .rack { display: flex; justify-content: center; gap: 5px; }
+
+    /* ══ A · NIXIE ═══════════════════════════════════════════════════════════
+       Cold-cathode tube: every digit is physically present as a wire cathode and the unlit ones
+       stay faintly visible — that ghosting is the whole tell, and it is why a nixie cannot be
+       faked with a font. The lit digit sits at its own depth, so the stack has real parallax. */
+    .nx {
+      position: relative; width: 46px; height: 74px; border-radius: 10px 10px 7px 7px;
+      background:
+        radial-gradient(ellipse 70% 40% at 50% 8%, rgba(255,255,255,.14), transparent 70%),
+        linear-gradient(105deg, rgba(255,255,255,.09) 0 12%, rgba(255,255,255,.02) 26%, rgba(0,0,0,.30) 60%, rgba(255,255,255,.05) 92%),
+        radial-gradient(ellipse at 50% 120%, rgba(255,150,40,.13), transparent 62%),
+        #0C0E10;
+      box-shadow: inset 0 0 12px rgba(0,0,0,.85), 0 0 0 1px rgba(0,0,0,.7), 0 2px 5px rgba(0,0,0,.6);
+      overflow: hidden;
+    }
+    /* Anode mesh, in front of the cathodes. */
+    .nx::before {
+      content: ''; position: absolute; inset: 6px 5px 10px;
+      background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.055) 0 1px, transparent 1px 4px),
+                        repeating-linear-gradient(90deg, rgba(255,255,255,.055) 0 1px, transparent 1px 4px);
+      pointer-events: none; z-index: 3;
+    }
+    /* Base pins. */
+    .nx::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 7px; z-index: 4;
+      background: linear-gradient(180deg, #2A2E31, #16191B);
+      box-shadow: 0 -1px 0 rgba(0,0,0,.7);
+    }
+    .nx-d {
+      position: absolute; inset: 0 0 7px; display: flex; align-items: center; justify-content: center;
+      font-family: 'Share Tech Mono', monospace; font-size: 36px; line-height: 1;
+      color: rgba(255,140,50,.055);
+      transition: color 260ms ease, text-shadow 260ms ease, transform 260ms ease;
+      transform: translateZ(0) scale(.97);
+    }
+    .nx-d--on {
+      color: #FF9A2E;
+      text-shadow: 0 0 5px #FF8A1E, 0 0 14px rgba(255,120,20,.75), 0 0 30px rgba(255,90,0,.45);
+      transform: scale(1);
+    }
+    /* Warm-up: the gas takes a beat to strike and settles bright. */
+    .nx-d--strike { animation: nxstrike 420ms ease-out; }
+    @keyframes nxstrike { 0% { opacity: .25; } 30% { opacity: 1; filter: brightness(1.5); } 100% { opacity: 1; filter: brightness(1); } }
+    /* Console idiom: same tube, cold plasma. */
+    .cell--console .nx { border-radius: 8px; background:
+        radial-gradient(ellipse 70% 40% at 50% 8%, rgba(255,255,255,.12), transparent 70%),
+        linear-gradient(105deg, rgba(255,255,255,.07) 0 12%, rgba(255,255,255,.02) 26%, rgba(0,0,0,.35) 60%, rgba(255,255,255,.04) 92%),
+        radial-gradient(ellipse at 50% 120%, rgba(127,168,255,.16), transparent 62%),
+        #070A10; }
+    .cell--console .nx-d { color: rgba(160,190,255,.06); }
+    .cell--console .nx-d--on { color: #CFE0FF; text-shadow: 0 0 6px #7FA8FF, 0 0 16px rgba(127,168,255,.7), 0 0 32px rgba(127,168,255,.4); }
+
+    /* ══ B · SPLIT-FLAP ══════════════════════════════════════════════════════
+       Solari board. The top leaf drops away carrying the old digit, the new leaf falls in behind
+       it. A counter that changes every few seconds gets a small physical event each time. */
+    .fl { position: relative; width: 46px; height: 70px; perspective: 220px; }
+    .fl-half {
+      position: absolute; left: 0; right: 0; height: 50%; overflow: hidden;
+      background: linear-gradient(180deg, #22262A, #1A1D20);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.7);
+    }
+    .fl-half--top { top: 0; border-radius: 5px 5px 0 0; }
+    .fl-half--bot { bottom: 0; border-radius: 0 0 5px 5px; background: linear-gradient(180deg, #191C1F, #24282C); }
+    .fl-txt {
+      position: absolute; left: 0; width: 100%; height: 70px; line-height: 70px;
+      font-family: 'Share Tech Mono', monospace; font-size: 42px; color: #EDE7D8; text-align: center;
+    }
+    .fl-half--top .fl-txt { top: 0; }
+    .fl-half--bot .fl-txt { bottom: 0; }
+    /* The seam: two leaves, never one card. */
+    .fl::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.85); z-index: 6; }
+    .fl-leaf {
+      position: absolute; left: 0; right: 0; height: 50%; overflow: hidden; z-index: 5;
+      transform-origin: bottom center; backface-visibility: hidden;
+    }
+    .fl-leaf--down { top: 0; transform-origin: bottom center; animation: flapdown 150ms ease-in forwards; }
+    .fl-leaf--up { bottom: 0; transform-origin: top center; animation: flapup 170ms 140ms cubic-bezier(.3,1.5,.5,1) backwards; }
+    @keyframes flapdown { from { transform: rotateX(0deg); } to { transform: rotateX(-90deg); } }
+    @keyframes flapup { from { transform: rotateX(90deg); } to { transform: rotateX(0deg); } }
+    .cell--console .fl-half { background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+    .cell--console .fl-half--top { border-radius: 8px 8px 0 0; }
+    .cell--console .fl-half--bot { border-radius: 0 0 8px 8px; background: linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.05)); }
+    .cell--console .fl-txt { color: #E6ECF6; }
+    .cell--console .fl::after { background: rgba(0,0,0,.6); }
+
+    /* ══ C · DRUM ════════════════════════════════════════════════════════════
+       Odometer. The digits are painted on a cylinder, so the strip rolls and the top and bottom of
+       the window fall away into shadow. The units wheel is almost always mid-roll, which is what
+       makes an odometer feel alive rather than merely correct. */
+    .dr {
+      position: relative; width: 42px; height: 68px; overflow: hidden; border-radius: 4px;
+      background: linear-gradient(180deg, #0A0C0E, #15181B 50%, #0A0C0E);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.8), inset 0 6px 10px rgba(0,0,0,.75), inset 0 -6px 10px rgba(0,0,0,.75);
+    }
+    .dr-strip { position: absolute; left: 0; right: 0; top: 0; transition: transform 420ms cubic-bezier(.22,.9,.25,1); }
+    .dr-cell {
+      height: 68px; line-height: 68px; text-align: center;
+      font-family: 'Share Tech Mono', monospace; font-size: 36px; color: #E9E3D3;
+      text-shadow: 0 1px 0 rgba(0,0,0,.6);
+    }
+    /* Cylinder shading + the window's own glass. */
+    .dr::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 3;
+      background: linear-gradient(180deg, rgba(0,0,0,.85), rgba(0,0,0,0) 34%, rgba(255,255,255,.05) 50%, rgba(0,0,0,0) 66%, rgba(0,0,0,.85));
+    }
+    .cell--console .dr { border-radius: 9px; background: linear-gradient(180deg, rgba(0,0,0,.5), rgba(255,255,255,.03) 50%, rgba(0,0,0,.5)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+    .cell--console .dr-cell { color: #E6ECF6; }
+
+    .blank { font-family: 'Share Tech Mono', monospace; font-size: 30px; color: #6a7076; line-height: 70px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .nx-d--strike, .fl-leaf--down, .fl-leaf--up { animation: none; }
+      .dr-strip { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="topbar"><span id="topbar-title">comfyuiWATCHER</span></div>
+    <div class="mock-head">Step counter &mdash; <b>A nixie</b> &middot; <b>B split-flap</b> &middot; <b>C drum</b></div>
+    <div class="mock-sub">Top row: a training run counting down through 4 digits. Bottom row: an 8-step batch job, so the counter resets 8&rarr;1&rarr;8 every image.</div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <script>
+  (function () {
+    const dv = (c, t) => { const e = document.createElement('div'); e.className = c; if (t != null) e.textContent = t; return e; };
+
+    // ── A · NIXIE ────────────────────────────────────────────────────────────
+    function nixie(width) {
+      const rack = dv('rack');
+      const tubes = [];
+      for (let i = 0; i < width; i++) {
+        const tube = dv('nx');
+        const digits = [];
+        for (let d = 0; d < 10; d++) {
+          const el = dv('nx-d', String(d));
+          // Cathodes sit at different depths in a real tube; the tiny offsets are what stop the
+          // stack reading as ten copies of the same glyph.
+          el.style.transform = `scale(${(0.94 + d * 0.006).toFixed(3)}) translateX(${(d % 3 - 1) * 0.6}px)`;
+          tube.appendChild(el);
+          digits.push(el);
+        }
+        rack.appendChild(tube);
+        tubes.push({ digits, on: -1 });
+      }
+      return {
+        el: rack,
+        set(text) {
+          const s = String(text).padStart(width, ' ').slice(-width);
+          tubes.forEach((t, i) => {
+            const ch = s[i];
+            const d = ch >= '0' && ch <= '9' ? Number(ch) : -1;
+            if (d === t.on) return;
+            t.digits.forEach((el, k) => {
+              const on = k === d;
+              el.classList.toggle('nx-d--on', on);
+              if (on) { el.classList.remove('nx-d--strike'); void el.offsetWidth; el.classList.add('nx-d--strike'); }
+            });
+            t.on = d;
+          });
+        },
+      };
+    }
+
+    // ── B · SPLIT-FLAP ───────────────────────────────────────────────────────
+    function flap(width) {
+      const rack = dv('rack');
+      const cards = [];
+      for (let i = 0; i < width; i++) {
+        const card = dv('fl');
+        const top = dv('fl-half fl-half--top'), bot = dv('fl-half fl-half--bot');
+        const topT = dv('fl-txt', ' '), botT = dv('fl-txt', ' ');
+        top.appendChild(topT); bot.appendChild(botT);
+        card.append(top, bot);
+        rack.appendChild(card);
+        cards.push({ card, topT, botT, cur: ' ' });
+      }
+      return {
+        el: rack,
+        set(text) {
+          const s = String(text).padStart(width, ' ').slice(-width);
+          cards.forEach((c, i) => {
+            const ch = s[i];
+            if (ch === c.cur) return;
+            const old = c.cur;
+            c.cur = ch;
+            // Bottom half holds the OLD digit until the falling leaf covers it, which is what sells
+            // the mechanism — swap it early and the eye catches the cheat.
+            c.topT.textContent = ch;
+            const leafDown = dv('fl-leaf fl-leaf--down');
+            const ld = dv('fl-half fl-half--top');
+            ld.appendChild(dv('fl-txt', old));
+            leafDown.appendChild(ld);
+            const leafUp = dv('fl-leaf fl-leaf--up');
+            const lu = dv('fl-half fl-half--bot');
+            lu.appendChild(dv('fl-txt', ch));
+            leafUp.appendChild(lu);
+            c.card.append(leafDown, leafUp);
+            setTimeout(() => { c.botT.textContent = ch; leafDown.remove(); }, 150);
+            setTimeout(() => leafUp.remove(), 330);
+          });
+        },
+      };
+    }
+
+    // ── C · DRUM ─────────────────────────────────────────────────────────────
+    function drum(width) {
+      const rack = dv('rack');
+      const wheels = [];
+      for (let i = 0; i < width; i++) {
+        const win = dv('dr');
+        const strip = dv('dr-strip');
+        // Two runs of 0-9 so a wrap from 0 to 9 can roll instead of snapping backwards.
+        for (let r = 0; r < 2; r++) for (let d = 0; d < 10; d++) strip.appendChild(dv('dr-cell', String(d)));
+        strip.appendChild(dv('dr-cell', ' '));
+        win.appendChild(strip);
+        rack.appendChild(win);
+        wheels.push({ strip, idx: 20 });
+      }
+      const H = 68;
+      return {
+        el: rack,
+        set(text) {
+          const s = String(text).padStart(width, ' ').slice(-width);
+          wheels.forEach((w, i) => {
+            const ch = s[i];
+            let target;
+            if (ch < '0' || ch > '9') target = 20;
+            else {
+              const d = Number(ch);
+              // Roll to whichever copy of the digit is nearest, so the wheel never spins the long
+              // way round for a single step.
+              const a = d, b = d + 10;
+              target = Math.abs(a - w.idx) <= Math.abs(b - w.idx) ? a : b;
+              if (target <= 0) target = d + 10;
+            }
+            if (target === w.idx) return;
+            w.idx = target;
+            w.strip.style.transform = `translateY(${-target * H}px)`;
+          });
+        },
+      };
+    }
+
+    // ── Page ─────────────────────────────────────────────────────────────────
+    const MECHS = [['A · Nixie', nixie], ['B · Split-flap', flap], ['C · Drum', drum]];
+    const grid = document.getElementById('grid');
+    const live = [];
+
+    // Row 1 · training run, 4 digits, counting down. Row 2 · batch job, 1 digit, resetting.
+    for (const [rowIdx, row] of [
+      { idiom: 'room', width: 4, label: 'Steps Left · training run' },
+      { idiom: 'console', width: 4, label: 'Steps Left · training run' },
+      { idiom: 'room', width: 1, label: 'Steps Left · batch job' },
+      { idiom: 'console', width: 1, label: 'Steps Left · batch job' },
+    ].entries()) {
+      for (const [name, make] of MECHS) {
+        const cell = dv(`cell cell--${row.idiom}`);
+        cell.appendChild(dv('cell-name', `${name} · ${row.idiom === 'room' ? 'P1' : 'P2'}`));
+        const m = make(row.width);
+        cell.appendChild(m.el);
+        cell.appendChild(dv('cell-cap', row.label));
+        grid.appendChild(cell);
+        live.push({ m, kind: row.width === 4 ? 'train' : 'batch' });
+      }
+      void rowIdx;
+    }
+
+    let train = 3696, batch = 8;
+    setInterval(() => {
+      train -= 1;
+      batch = batch <= 1 ? 8 : batch - 1;
+      for (const l of live) l.m.set(l.kind === 'train' ? train : batch);
+    }, 1400);
+    for (const l of live) l.m.set(l.kind === 'train' ? train : batch);
+  })();
+  </script>
+</body>
+</html>

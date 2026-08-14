@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — rate instrument options, round 2 (live)</title>
+  <!-- Round 2. Round 1 was three flat readouts (ladder / trace / rail) — these are small glass
+       instruments instead, and every one of them MOVES AT THE JOB'S OWN CADENCE: one pulse, one
+       bubble, one cell, one wave crest per step. The motion is the measurement, not decoration, so
+       a slow video sampler feels slow across the room and a fast SDXL run feels fast without
+       reading a number. The printed figure is still there for the exact value.
+       Top row generation (0.2-0.4 it/s, so ~3-4s per pulse), bottom row training (~2.5 s/it).
+       The rate cuts out every ~14s so you can see each one's honest "no reading" state. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+  <style>
+    /* ── MOCK-ONLY: five candidates. Whichever wins gets promoted into widgets/. ── */
+    .mock-head {
+      font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 600;
+      letter-spacing: .28em; text-transform: uppercase;
+      color: rgba(230,236,246,.5); padding: 14px 16px 0;
+    }
+    .mock-head b { color: #7FA8FF; font-weight: 600; }
+    .mock-sub {
+      font-family: 'Share Tech Mono', monospace; font-size: 11px;
+      color: rgba(230,236,246,.32); padding: 2px 16px 0;
+    }
+    .job-card .meter { display: none; }
+
+    .inst { position: relative; width: 100%; }
+    .inst-svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+    /* Shared ink. The figure is the same one the RATE legend prints, flipped at 1:1 the same way. */
+    .g-value { fill: #F2F7FF; font-family: 'Share Tech Mono', monospace; font-size: 22px; }
+    .g-unit { fill: #7FA8FF; font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .12em; }
+    .g-cap {
+      fill: rgba(226,236,255,.30); font-family: 'Rajdhani', sans-serif; font-weight: 600;
+      font-size: 8px; letter-spacing: .24em; text-transform: uppercase;
+    }
+    .g-glass { fill: none; stroke: rgba(255,255,255,.14); stroke-width: 1; }
+    .g-nosignal {
+      fill: rgba(226,236,255,.3); font-family: 'Share Tech Mono', monospace;
+      font-size: 9px; letter-spacing: .3em; text-anchor: middle; visibility: hidden;
+    }
+    .inst--nosignal .g-nosignal { visibility: visible; }
+    .inst--nosignal .g-value { fill: rgba(226,236,255,.22); }
+    .inst--nosignal .g-unit { fill: rgba(226,236,255,.16); }
+    /* No reading -> nothing lit and nothing moving. A pulse with no measurement behind it would be
+       the animated version of a fabricated number. */
+    .inst--nosignal .g-live { visibility: hidden; }
+    .inst--dark .g-glass { stroke: rgba(255,255,255,.07); }
+
+    /* D · PULSE LENS */
+    .pl-dome { stroke: rgba(255,255,255,.16); stroke-width: 1.2; }
+    .pl-ring-track { fill: none; stroke: rgba(226,236,255,.10); stroke-width: 3; stroke-linecap: round; }
+    .pl-ring { fill: none; stroke: #7FA8FF; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 5px rgba(127,168,255,.8)); }
+    .pl-wave { fill: none; stroke: #BFD5FF; stroke-width: 1.4; }
+    .pl-core { fill: #7FA8FF; filter: drop-shadow(0 0 8px #7FA8FF); }
+
+    /* E · VIAL */
+    .vl-tube { fill: rgba(255,255,255,.03); stroke: rgba(255,255,255,.16); stroke-width: 1.2; }
+    .vl-fluid { fill: #4E7BD6; filter: drop-shadow(0 0 7px rgba(127,168,255,.55)); }
+    .vl-meniscus { stroke: #EAF2FF; stroke-width: 1.6; stroke-linecap: round; }
+    .vl-bubble { fill: rgba(234,242,255,.75); }
+    .vl-grad { stroke: rgba(226,236,255,.22); stroke-width: 1; }
+    .vl-grad-label { fill: rgba(226,236,255,.4); font-family: 'Share Tech Mono', monospace; font-size: 7.5px; }
+
+    /* F · SCOPE */
+    .sc-screen { fill: rgba(127,168,255,.035); stroke: rgba(255,255,255,.12); stroke-width: 1; }
+    .sc-grid { stroke: rgba(226,236,255,.055); stroke-width: 1; }
+    .sc-wave { fill: none; stroke: #7FA8FF; stroke-width: 1.7; stroke-linejoin: round; filter: drop-shadow(0 0 5px rgba(127,168,255,.7)); }
+    .sc-mid { stroke: rgba(226,236,255,.10); stroke-width: 1; stroke-dasharray: 2 5; }
+
+    /* G · STEP CELLS */
+    .cl-cell { fill: rgba(255,255,255,.035); stroke: rgba(255,255,255,.14); stroke-width: 1; }
+    .cl-lit { fill: #7FA8FF; }
+    .cl-lit--head { fill: #F2F7FF; filter: drop-shadow(0 0 7px #7FA8FF); }
+
+    /* H · FLOW */
+    .fl-pipe { fill: rgba(255,255,255,.03); stroke: rgba(255,255,255,.13); stroke-width: 1; }
+    .fl-dash { stroke: #7FA8FF; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 3 17; filter: drop-shadow(0 0 6px rgba(127,168,255,.75)); }
+    .fl-scale { stroke: rgba(226,236,255,.18); stroke-width: 1; }
+    .fl-head { fill: #F2F7FF; filter: drop-shadow(0 0 7px #7FA8FF); }
+  </style>
+</head>
+<body class="skin-halo size-normal">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <div id="topbar-controls">
+        <select id="skin-select" title="Skin">
+          <option value="halo" selected>Obsidian Halo</option>
+          <option value="glass">Obsidian Glass</option>
+          <option value="rack">1U Rack</option>
+        </select>
+        <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      </div>
+    </div>
+    <div class="mock-head">Round 2 &mdash; <b>D lens</b> &middot; <b>E vial</b> &middot; <b>F scope</b> &middot; <b>G cells</b> &middot; <b>H flow</b></div>
+    <div class="mock-sub">Each one beats once per step, at the job's real cadence. Top row generation, bottom row training.</div>
+    <div id="cards"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script>
+  (function () {
+    const SVG = 'http://www.w3.org/2000/svg';
+    const el = (t, a) => { const e = document.createElementNS(SVG, t); for (const k in (a||{})) e.setAttribute(k, a[k]); return e; };
+    let uid = 0;
+
+    const FACES = {
+      sampling: {
+        minLog: -Math.log10(20), maxLog: Math.log10(20), single: false,
+        slow: 's/it', fast: 'it/s',
+        labels: [[1/20,'20'],[1/5,'5'],[1,'1'],[5,'5'],[20,'20']],
+      },
+      training: {
+        minLog: -Math.log10(60), maxLog: 0, single: true,
+        slow: 'sec/iter',
+        labels: [[1/60,'60'],[1/20,'20'],[1/5,'5'],[1/2,'2'],[1,'1']],
+      },
+    };
+    const pos = (f, v) => Math.max(0, Math.min(1, (Math.log10(v) - f.minLog) / (f.maxLog - f.minLog)));
+    const fig = (v) => (v >= 1 ? v.toFixed(2) : (1 / v).toFixed(2));
+    const unitOf = (f, v) => (f.single || v < 1 ? f.slow : f.fast);
+
+    // ── One clock for every instrument on screen, the way lcd.js drives every needle from one
+    //    rAF loop. `phase` is where we are between two steps, 0..1, at the job's real rate. ──
+    const beating = new Set();
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    function frame(now) {
+      for (const b of beating) b(now / 1000);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+
+    function shell(faceName, w, h) {
+      const face = FACES[faceName];
+      const wrap = document.createElement('div');
+      wrap.className = 'inst';
+      const svg = el('svg', { viewBox: `0 0 ${w} ${h}`, class: 'inst-svg' });
+      wrap.appendChild(svg);
+      return { face, wrap, svg };
+    }
+
+    function lighting(wrap, face, rate, powered) {
+      const live = rate != null && Number.isFinite(rate) && rate > 0;
+      wrap.classList.toggle('inst--nosignal', !live);
+      wrap.classList.toggle('inst--dark', !live && !powered);
+      return live;
+    }
+
+    // A radial "glass" wash, unique per instance — SVG gradient ids are document-global.
+    function dome(svg, cx, cy, r) {
+      const id = `dome-${++uid}`;
+      const defs = el('defs');
+      const g = el('radialGradient', { id, cx: '35%', cy: '28%', r: '75%' });
+      const s1 = el('stop', { offset: '0', 'stop-color': 'rgba(255,255,255,.10)' });
+      const s2 = el('stop', { offset: '0.55', 'stop-color': 'rgba(255,255,255,.02)' });
+      const s3 = el('stop', { offset: '1', 'stop-color': 'rgba(0,0,0,.22)' });
+      g.append(s1, s2, s3); defs.appendChild(g); svg.appendChild(defs);
+      return el('circle', { cx, cy, r, fill: `url(#${id})`, class: 'pl-dome' });
+    }
+
+    function figure(svg, x, y, anchor) {
+      const value = el('text', { x, y, class: 'g-value', 'text-anchor': anchor || 'start' });
+      const unit = el('text', { x, y: y + 13, class: 'g-unit', 'text-anchor': anchor || 'start' });
+      svg.append(value, unit);
+      return { value, unit };
+    }
+
+    // ── D · PULSE LENS ────────────────────────────────────────────────────────
+    // A glass lens with the reading on a ring, and a ripple that leaves the core once per step.
+    function makeLens(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 96);
+      const CX = 52, CY = 48, R = 34;
+      const arc = (r) => `M ${CX - r * 0.866} ${CY + r * 0.5} A ${r} ${r} 0 1 1 ${CX + r * 0.866} ${CY + r * 0.5}`;
+      svg.appendChild(dome(svg, CX, CY, R));
+      svg.appendChild(el('path', { d: arc(R + 7), class: 'pl-ring-track', pathLength: 1, 'stroke-dasharray': '1 1' }));
+      const ring = el('path', { d: arc(R + 7), class: 'pl-ring g-live', pathLength: 1, 'stroke-dasharray': '0 1' });
+      const wave = el('circle', { cx: CX, cy: CY, r: 8, class: 'pl-wave g-live' });
+      const core = el('circle', { cx: CX, cy: CY, r: 5, class: 'pl-core g-live' });
+      svg.append(ring, wave, core);
+      const f = figure(svg, 108, 44);
+      const cap = el('text', { x: 108, y: 68, class: 'g-cap' });
+      cap.textContent = 'per step';
+      svg.appendChild(cap);
+      const ns = el('text', { x: 52, y: 52, class: 'g-nosignal' });
+      ns.textContent = 'NO SIG';
+      svg.appendChild(ns);
+
+      let rate = null, powered = false;
+      beating.add((t) => {
+        if (rate == null || !(rate > 0) || reduce.matches) { wave.style.opacity = 0; return; }
+        const phase = (t * rate) % 1;               // exactly one ripple per step
+        wave.setAttribute('r', 8 + phase * (R - 6));
+        wave.style.opacity = (1 - phase) * 0.75;
+        core.setAttribute('r', 5 + (1 - phase) * 2.5);
+      });
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        ring.setAttribute('stroke-dasharray', `${live ? pos(face, rate).toFixed(4) : 0} 1`);
+        f.value.textContent = live ? fig(rate) : '--';
+        f.unit.textContent = live ? unitOf(face, rate) : '';
+      }
+      draw();
+      return { el: wrap, setRate(v) { rate = v; draw(); }, setPowered(p) { powered = p; draw(); } };
+    }
+
+    // ── E · VIAL ──────────────────────────────────────────────────────────────
+    // A sight glass: fluid stands at the reading, one bubble rises per step.
+    function makeVial(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 96);
+      const X = 18, W = 34, Y0 = 6, Y1 = 90;
+      svg.appendChild(el('rect', { x: X, y: Y0, width: W, height: Y1 - Y0, rx: 17, class: 'vl-tube' }));
+      const fluid = el('rect', { x: X + 2.5, y: Y1 - 2, width: W - 5, height: 0, rx: 14, class: 'vl-fluid g-live' });
+      const men = el('line', { x1: X + 4, y1: Y1, x2: X + W - 4, y2: Y1, class: 'vl-meniscus g-live' });
+      const bubbles = [0, 0.34, 0.67].map(() => el('circle', { cx: X + W / 2, cy: Y1, r: 2.2, class: 'vl-bubble g-live' }));
+      svg.append(fluid, men, ...bubbles);
+      // Graduations printed beside the glass, like a real sight tube.
+      for (const [v, text] of face.labels) {
+        const y = Y1 - (Y1 - Y0) * pos(face, v);
+        svg.appendChild(el('line', { x1: X + W + 3, y1: y, x2: X + W + 8, y2: y, class: 'vl-grad' }));
+        const t = el('text', { x: X + W + 11, y: y + 2.5, class: 'vl-grad-label' });
+        t.textContent = text;
+        svg.appendChild(t);
+      }
+      const f = figure(svg, 116, 46);
+      const cap = el('text', { x: 116, y: 70, class: 'g-cap' });
+      cap.textContent = 'one bubble = one step';
+      svg.appendChild(cap);
+      const ns = el('text', { x: X + W / 2, y: 50, class: 'g-nosignal' });
+      ns.textContent = '--';
+      svg.appendChild(ns);
+
+      let rate = null, powered = false, level = 0;
+      beating.add((t) => {
+        if (rate == null || !(rate > 0)) return;
+        const top = Y1 - (Y1 - Y0) * level;
+        if (reduce.matches) { bubbles.forEach((b) => { b.style.opacity = 0; }); return; }
+        bubbles.forEach((b, i) => {
+          const phase = ((t * rate) + i * 0.33) % 1;
+          const y = Y1 - 3 - phase * (Y1 - 3 - top);
+          b.setAttribute('cy', y);
+          b.setAttribute('cx', X + W / 2 + Math.sin(phase * 7 + i) * 4);
+          b.setAttribute('r', 1.6 + phase * 1.4);
+          b.style.opacity = y > top ? (1 - phase) * 0.85 : 0;
+        });
+      });
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        level = live ? pos(face, rate) : 0;
+        const h = (Y1 - Y0) * level;
+        fluid.setAttribute('y', Y1 - h);
+        fluid.setAttribute('height', h);
+        men.setAttribute('y1', Y1 - h);
+        men.setAttribute('y2', Y1 - h);
+        f.value.textContent = live ? fig(rate) : '--';
+        f.unit.textContent = live ? unitOf(face, rate) : '';
+      }
+      draw();
+      return { el: wrap, setRate(v) { rate = v; draw(); }, setPowered(p) { powered = p; draw(); } };
+    }
+
+    // ── F · SCOPE ─────────────────────────────────────────────────────────────
+    // A window on the work: one crest per step, scrolling. Frequency IS the rate.
+    function makeScope(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 96);
+      const X0 = 8, X1 = 232, Y0 = 8, Y1 = 74, MID = (Y0 + Y1) / 2;
+      svg.appendChild(el('rect', { x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, rx: 8, class: 'sc-screen' }));
+      for (let i = 1; i < 6; i++) {
+        const x = X0 + ((X1 - X0) / 6) * i;
+        svg.appendChild(el('line', { x1: x, y1: Y0 + 4, x2: x, y2: Y1 - 4, class: 'sc-grid' }));
+      }
+      svg.appendChild(el('line', { x1: X0 + 4, y1: MID, x2: X1 - 4, y2: MID, class: 'sc-mid' }));
+      const wave = el('path', { d: '', class: 'sc-wave g-live' });
+      svg.appendChild(wave);
+      const f = figure(svg, X1 - 6, 92, 'end');
+      f.value.setAttribute('font-size', '18');
+      f.unit.setAttribute('y', 92);
+      f.unit.setAttribute('x', X1 - 52);
+      const cap = el('text', { x: X0 + 2, y: 92, class: 'g-cap' });
+      cap.textContent = 'one crest = one step';
+      svg.appendChild(cap);
+      const ns = el('text', { x: 120, y: MID + 3, class: 'g-nosignal' });
+      ns.textContent = 'NO SIGNAL';
+      svg.appendChild(ns);
+
+      let rate = null, powered = false;
+      beating.add((t) => {
+        if (rate == null || !(rate > 0)) return;
+        // Three crests across the window, scrolling right to left at one crest per step.
+        const phase = reduce.matches ? 0 : (t * rate) % 1;
+        let d = '';
+        for (let i = 0; i <= 56; i++) {
+          const x = X0 + 4 + ((X1 - X0 - 8) / 56) * i;
+          const u = (i / 56) * 3 - phase;
+          const y = MID - Math.sin(u * Math.PI * 2) * 22;
+          d += `${i ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)} `;
+        }
+        wave.setAttribute('d', d);
+      });
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        f.value.textContent = live ? fig(rate) : '--';
+        f.unit.textContent = live ? unitOf(face, rate) : '';
+      }
+      draw();
+      return { el: wrap, setRate(v) { rate = v; draw(); }, setPowered(p) { powered = p; draw(); } };
+    }
+
+    // ── G · STEP CELLS ────────────────────────────────────────────────────────
+    // Eight glass cells; the light moves one cell per step. Nothing about position is a
+    // measurement — the SPEED of the walk is, and the figure prints the number.
+    function makeCells(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 96);
+      const N = 8, R = 13, GAP = 5, X0 = 12, Y = 38;
+      const cells = [], lits = [];
+      for (let i = 0; i < N; i++) {
+        const cx = X0 + R + i * (R * 2 + GAP);
+        svg.appendChild(dome(svg, cx, Y, R));
+        const lit = el('circle', { cx, cy: Y, r: R - 4, class: 'cl-lit g-live' });
+        svg.appendChild(lit);
+        lits.push(lit); cells.push(cx);
+      }
+      const f = figure(svg, X0, 86);
+      f.value.setAttribute('font-size', '18');
+      f.unit.setAttribute('x', X0 + 62);
+      f.unit.setAttribute('y', 86);
+      const cap = el('text', { x: 232, y: 86, class: 'g-cap', 'text-anchor': 'end' });
+      cap.textContent = 'one cell = one step';
+      svg.appendChild(cap);
+      const ns = el('text', { x: 120, y: 38, class: 'g-nosignal' });
+      ns.textContent = 'NO SIGNAL';
+      svg.appendChild(ns);
+
+      let rate = null, powered = false;
+      beating.add((t) => {
+        if (rate == null || !(rate > 0)) { lits.forEach((l) => { l.style.opacity = 0; }); return; }
+        const walk = t * rate;                       // one cell per step
+        const head = Math.floor(walk) % N;
+        lits.forEach((l, i) => {
+          // Trailing glow: the two cells behind the head fade out, so direction is legible.
+          const back = (head - i + N) % N;
+          const o = back === 0 ? 1 : back === 1 ? 0.4 : back === 2 ? 0.16 : 0.06;
+          l.style.opacity = reduce.matches ? (i === head ? 1 : 0.06) : o;
+          l.classList.toggle('cl-lit--head', back === 0);
+        });
+      });
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        f.value.textContent = live ? fig(rate) : '--';
+        f.unit.textContent = live ? unitOf(face, rate) : '';
+      }
+      draw();
+      return { el: wrap, setRate(v) { rate = v; draw(); }, setPowered(p) { powered = p; draw(); } };
+    }
+
+    // ── H · FLOW ──────────────────────────────────────────────────────────────
+    // A glass pipe: the reading is how far the flow reaches, and the dashes travel through it at
+    // one dash per step.
+    function makeFlow(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 96);
+      const X0 = 14, X1 = 226, Y = 36, H = 30;
+      svg.appendChild(el('rect', { x: X0, y: Y - H / 2, width: X1 - X0, height: H, rx: H / 2, class: 'fl-pipe' }));
+      const clipId = `flowclip-${++uid}`;
+      const defs = el('defs');
+      const clip = el('clipPath', { id: clipId });
+      const clipRect = el('rect', { x: X0, y: Y - H / 2, width: 0, height: H });
+      clip.appendChild(clipRect); defs.appendChild(clip); svg.appendChild(defs);
+      const dash = el('line', { x1: X0 + 6, y1: Y, x2: X1 - 6, y2: Y, class: 'fl-dash g-live', 'clip-path': `url(#${clipId})` });
+      const head = el('rect', { x: X0, y: Y - H / 2 + 3, width: 3, height: H - 6, rx: 1.5, class: 'fl-head g-live' });
+      svg.append(dash, head);
+      for (const [v, text] of face.labels) {
+        const x = X0 + (X1 - X0) * pos(face, v);
+        svg.appendChild(el('line', { x1: x, y1: Y + H / 2 + 4, x2: x, y2: Y + H / 2 + 8, class: 'fl-scale' }));
+        const t = el('text', { x, y: Y + H / 2 + 20, class: 'vl-grad-label', 'text-anchor': 'middle' });
+        t.textContent = text;
+        svg.appendChild(t);
+      }
+      const f = figure(svg, X0, 94);
+      f.value.setAttribute('font-size', '18');
+      f.unit.setAttribute('x', X0 + 62);
+      f.unit.setAttribute('y', 94);
+      const cap = el('text', { x: X1, y: 94, class: 'g-cap', 'text-anchor': 'end' });
+      cap.textContent = 'one dash = one step';
+      svg.appendChild(cap);
+      const ns = el('text', { x: 120, y: Y + 3, class: 'g-nosignal' });
+      ns.textContent = 'NO SIGNAL';
+      svg.appendChild(ns);
+
+      let rate = null, powered = false, reach = 0;
+      beating.add((t) => {
+        if (rate == null || !(rate > 0) || reduce.matches) return;
+        dash.style.strokeDashoffset = -((t * rate) % 1) * 20;
+      });
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        reach = live ? pos(face, rate) : 0;
+        const x = X0 + (X1 - X0) * reach;
+        clipRect.setAttribute('width', Math.max(0, x - X0));
+        head.setAttribute('x', x - 1.5);
+        head.style.visibility = live ? '' : 'hidden';
+        f.value.textContent = live ? fig(rate) : '--';
+        f.unit.textContent = live ? unitOf(face, rate) : '';
+      }
+      draw();
+      return { el: wrap, setRate(v) { rate = v; draw(); }, setPowered(p) { powered = p; draw(); } };
+    }
+
+    // ── Rack ──────────────────────────────────────────────────────────────────
+    const MAKERS = [
+      ['D · Lens', makeLens], ['E · Vial', makeVial], ['F · Scope', makeScope],
+      ['G · Cells', makeCells], ['H · Flow', makeFlow],
+    ];
+    const ROWS = [
+      {
+        name: 'New Main', kind: 'comfyui', face: 'sampling',
+        job: {
+          step: 3, maxSteps: 8, stepsPerSec: 0.29, etaSec: 17, elapsedSec: 96, jobEtaSec: 640,
+          node: '9', nodeName: 'KSampler', pass: 5, passTotal: 28,
+          model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1,
+        },
+        tick(j, t) {
+          j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
+          if (j.step === 1) j.pass = (j.pass % j.passTotal) + 1;
+          j.stepsPerSec = (t % 28) < 24 ? 0.26 + 0.1 * Math.sin(t / 6) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.elapsedSec += 3.5;
+        },
+      },
+      {
+        name: 'AI-Toolkit', kind: 'aitoolkit', face: 'training',
+        job: {
+          step: 2210, maxSteps: 6000, stepsPerSec: 0.39, etaSec: 9640, elapsedSec: null,
+          node: 'train', nodeName: 'w1f3y_h3_v1', phase: 'Training',
+          model: 'MiniMax-H3', size: '512/768/1024', rank: 16, loss: 0.0341,
+        },
+        tick(j, t) {
+          j.step += 1;
+          j.stepsPerSec = (t % 28) < 24 ? 1 / (2.4 + 0.6 * Math.sin(t / 9)) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.loss = Math.max(0.005, j.loss + (Math.random() - 0.5) * 0.004);
+        },
+      },
+    ];
+
+    const cardsEl = document.getElementById('cards');
+    const built = [];
+    for (const row of ROWS) {
+      for (const [label, make] of MAKERS) {
+        const card = window.Widgets.createCard(`${row.name}  ·  ${label}`, row.kind);
+        const inst = make(row.face);
+        card.querySelector('.jc-well--meter').prepend(inst.el);
+        cardsEl.appendChild(card);
+        built.push({ row, card, inst });
+      }
+    }
+
+    let t = 0;
+    setInterval(() => {
+      t += 0.5;
+      for (const row of ROWS) row.tick(row.job, t);
+      for (const b of built) {
+        window.Widgets.updateCard(b.card, b.card.dataset.host, {
+          status: 'online', queueRemaining: 0, currentJob: b.row.job,
+        });
+        b.inst.setRate(b.row.job.stepsPerSec);
+        b.inst.setPowered(true);
+      }
+    }, 500);
+
+    document.getElementById('skin-select').addEventListener('change', (e) => {
+      document.body.className = `skin-${e.target.value} size-normal`;
+    });
+  })();
+  </script>
+</body>
+</html>

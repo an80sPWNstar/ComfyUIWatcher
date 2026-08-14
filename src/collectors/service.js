@@ -17,15 +17,23 @@ class WatcherService {
 
   setHosts(hosts) {
     const byName = new Map(hosts.map((h) => [h.name, h]));
-    // Stop clients for hosts no longer configured — and for hosts whose kind changed, since the
-    // collector class itself is then wrong (editing a host in place keeps its name).
+    // Stop clients for hosts no longer configured — and for hosts whose kind or URL changed, since
+    // the collector class (or its whole connection) is then wrong. Editing a host in place keeps
+    // its name, so name alone cannot decide this.
     for (const [name, client] of this.clients) {
       const host = byName.get(name);
-      if (!host || (host.kind ?? 'comfyui') !== this.kinds.get(name)) {
+      if (!host || (host.kind ?? 'comfyui') !== this.kinds.get(name) || host.url !== client.host.url) {
         client.stop();
         this.clients.delete(name);
         this.kinds.delete(name);
         delete this.latest[name];
+      } else {
+        // Same host, same collector — but the ENTRY may have changed in ways that need no restart
+        // (its rack position, a token). A collector emits `host: this.host` with every snapshot, so
+        // without this the renderer keeps being told the old position and a reorder appears to do
+        // nothing for every host that was already running. Found 2026-08-13 by dragging a card in
+        // the real app: hosts.json was right, the rack did not move.
+        client.host = host;
       }
     }
     // Start clients for newly configured hosts.

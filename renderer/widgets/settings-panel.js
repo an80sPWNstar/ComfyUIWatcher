@@ -9,16 +9,60 @@
 (() => {
   let panelEl = null;
 
+  /** Persist a whole host list and redraw the panel from the validated result. */
+  async function saveHosts(next, listEl) {
+    const saved = await window.comfyuiWatcher.setHosts(next);
+    renderHostList(listEl, saved);
+  }
+
   /**
-   * Build one row for the hosts list: "<name>  <url>  [Remove]".
+   * Move one host up or down the list. THE LIST ORDER IS THE RACK ORDER — dragging a card does
+   * exactly this, and these arrows are the same operation for anyone who would rather not drag
+   * (and the only one that can move a hidden host, which has no card to grab).
+   */
+  async function moveHost(index, delta, listEl) {
+    const hosts = await window.comfyuiWatcher.getHosts();
+    const to = index + delta;
+    if (to < 0 || to >= hosts.length) return;
+    const [entry] = hosts.splice(index, 1);
+    hosts.splice(to, 0, entry);
+    await saveHosts(hosts, listEl);
+  }
+
+  /**
+   * Hide/show a host. Hiding keeps the entry and stops watching it — no card, no collector, no
+   * reconnect loop against a machine that is switched off. Unhiding starts it again from scratch.
+   */
+  async function toggleHidden(host, listEl) {
+    const hosts = await window.comfyuiWatcher.getHosts();
+    const next = hosts.map((h) => (h.name === host.name && h.url === host.url
+      ? { ...h, hidden: !h.hidden }
+      : h));
+    await saveHosts(next, listEl);
+  }
+
+  function iconButton(className, label, title, onClick) {
+    const btn = document.createElement('button');
+    btn.className = className;
+    btn.textContent = label;
+    btn.title = title;
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  /**
+   * Build one row for the hosts list: "<name> <kind> <url> [↑][↓][Hide][Remove]".
    * Remove calls setHosts with the host filtered out, then re-renders the list
    * from the returned (validated) list.
-   * @param {{name: string, url: string}} host
+   * @param {{name: string, url: string, kind?: string, hidden?: boolean}} host
+   * @param {number} index position in the list, i.e. its slot in the rack
+   * @param {number} total how many hosts there are, so the end arrows can be disabled
    * @param {HTMLElement} listEl the container to re-render after a change
    */
-  function hostRow(host, listEl) {
+  function hostRow(host, index, total, listEl) {
     const row = document.createElement('div');
     row.className = 'settings-host-row';
+    row.classList.toggle('settings-host-row--hidden', !!host.hidden);
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'settings-host-name';
@@ -32,34 +76,47 @@
     urlSpan.className = 'settings-host-url';
     urlSpan.textContent = host.url;
 
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'settings-remove-btn';
-    removeBtn.textContent = 'Remove';
-    removeBtn.addEventListener('click', async () => {
+    const upBtn = iconButton('settings-move-btn', '↑', 'Move up the rack',
+      () => moveHost(index, -1, listEl));
+    upBtn.disabled = index === 0;
+    const downBtn = iconButton('settings-move-btn', '↓', 'Move down the rack',
+      () => moveHost(index, 1, listEl));
+    downBtn.disabled = index === total - 1;
+
+    // Says what it will DO, not what the host is — "Hide" on a visible host, "Show" on a hidden
+    // one. The row itself already reads as hidden (dimmed, HIDDEN tag), so the button does not
+    // have to double as the status.
+    const hideBtn = iconButton(
+      'settings-hide-btn',
+      host.hidden ? 'Show' : 'Hide',
+      host.hidden ? 'Watch this host again' : 'Keep the entry but stop watching this host',
+      () => toggleHidden(host, listEl),
+    );
+
+    const removeBtn = iconButton('settings-remove-btn', 'Remove', 'Delete this host entry', async () => {
       const hosts = await window.comfyuiWatcher.getHosts();
-      const next = hosts.filter((h) => !(h.name === host.name && h.url === host.url));
-      const saved = await window.comfyuiWatcher.setHosts(next);
-      renderHostList(listEl, saved);
+      await saveHosts(hosts.filter((h) => !(h.name === host.name && h.url === host.url)), listEl);
     });
 
-    row.appendChild(nameSpan);
-    row.appendChild(kindSpan);
-    row.appendChild(urlSpan);
-    row.appendChild(removeBtn);
+    const tag = document.createElement('span');
+    tag.className = 'settings-host-tag';
+    tag.textContent = host.hidden ? 'hidden' : '';
+
+    row.append(nameSpan, kindSpan, urlSpan, tag, upBtn, downBtn, hideBtn, removeBtn);
 
     return row;
   }
 
   /**
-   * Clear listEl and append one hostRow per host.
+   * Clear listEl and append one hostRow per host, in list order — which IS the rack order.
    * @param {HTMLElement} listEl
    * @param {{name: string, url: string}[]} hosts
    */
   function renderHostList(listEl, hosts) {
     listEl.replaceChildren();
-    for (const host of hosts) {
-      listEl.appendChild(hostRow(host, listEl));
-    }
+    hosts.forEach((host, i) => {
+      listEl.appendChild(hostRow(host, i, hosts.length, listEl));
+    });
   }
 
   /**
@@ -155,6 +212,61 @@
     return form;
   }
 
+  /**
+   * Dial ranges. Both instruments are log scales, so their end stops decide how much of the arc a
+   * real job actually uses: on the old fixed +/-100 it/s face everything Bryan generates sat within
+   * a few degrees of centre. The wide face is still there for a fast run — it is a setting now, not
+   * a guess baked into the widget.
+   *
+   * A change reprints the faces in place (Widgets.refreshCardFace via renderer.js) — no rebuild, so
+   * a running job's readout and its needle are not interrupted.
+   */
+  function dialRow(kind, label, hint, fmt) {
+    const row = document.createElement('div');
+    row.className = 'settings-dial-row';
+
+    const l = document.createElement('span');
+    l.className = 'settings-dial-label';
+    l.textContent = label;
+
+    const select = document.createElement('select');
+    select.className = 'settings-input settings-dial-select';
+    for (const range of window.Widgets.dialRanges[kind]) {
+      const opt = document.createElement('option');
+      opt.value = String(range);
+      opt.textContent = fmt(range);
+      select.appendChild(opt);
+    }
+    select.value = String(window.Widgets.dialRange(kind));
+    select.addEventListener('change', () => {
+      window.Widgets.setDialRange(kind, Number(select.value));
+      document.dispatchEvent(new CustomEvent('comfyuiwatcher:dial-range'));
+    });
+
+    const h = document.createElement('span');
+    h.className = 'settings-dial-hint';
+    h.textContent = hint;
+
+    row.append(l, select, h);
+    return row;
+  }
+
+  function dialSection() {
+    const wrap = document.createElement('div');
+    wrap.className = 'settings-dials';
+
+    const title = document.createElement('div');
+    title.className = 'settings-title settings-title--sub';
+    title.textContent = 'Dials';
+
+    wrap.append(
+      title,
+      dialRow('sampling', 'Generation', 'end stops of the sampling dial', (r) => `${r} s/it  ―  ${r} it/s`),
+      dialRow('training', 'Training', 'slow end of the training dial', (r) => `${r} s/it`),
+    );
+    return wrap;
+  }
+
   function createSettingsPanel() {
     const panel = document.createElement('div');
     panel.className = 'settings-panel';
@@ -167,11 +279,20 @@
     const listEl = document.createElement('div');
     listEl.className = 'settings-host-list';
 
+    // Two things nobody would guess: that the cards themselves can be dragged, and that hiding is
+    // not the same as the top-bar filter — it stops watching the host entirely.
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'Order is the rack order — drag a card, or use the arrows. '
+      + 'Hidden hosts keep their entry but are not watched.';
+
     const formEl = addHostForm(listEl);
 
     panel.appendChild(title);
+    panel.appendChild(note);
     panel.appendChild(listEl);
     panel.appendChild(formEl);
+    panel.appendChild(dialSection());
 
     panelEl = panel;
     return panel;

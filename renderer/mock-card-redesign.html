@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — full card redesign (live)</title>
+  <!-- THREE COMPLETE CARD LAYOUTS, not three dials. Nothing here reuses job-card.js: each is its
+       own DOM, so this is what a second card widget would look like (the way guiTOP carries
+       GpuCardBars and GpuCardCorvette). Same fake job feeds all three, moving, with the rate
+       dropping out every ~14s so the honest "no reading" state is visible in each.
+
+       Every value the current card shows is still here — steps left, step X/Y, batch position,
+       rate, ETA, batch ETA, elapsed, model, size, frames/rank, loss, node, queue, phase — and the
+       honesty rules are kept: N/A for unknown steps, -- for unknown time, nothing lit that is not
+       being measured.
+
+       ALPHA  · CLUSTER — a row of small glass gauges, car-dash style.
+       BETA   · ORBIT   — one glass disc; a satellite completes one lap per step.
+       GAMMA  · TILES   — no round gauges: a grid of glass tiles beside a vertical light column. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <style>
+    :root {
+      --ink:        #E6ECF6;
+      --ink-mid:    rgba(230,236,246,.56);
+      --ink-dim:    rgba(230,236,246,.27);
+      --run:        #7FA8FF;
+      --ok:         #45E3B0;
+      --fault:      #FF5470;
+      --idle:       #55606E;
+      --glass:      rgba(255,255,255,.035);
+      --edge:       rgba(255,255,255,.08);
+      --mono: 'Share Tech Mono', monospace;
+      --sil: 'Rajdhani', sans-serif;
+    }
+    body {
+      background:
+        radial-gradient(120% 70% at 50% -20%, rgba(127,168,255,.10), transparent 62%),
+        linear-gradient(180deg, #070A10, #04060A 60%, #05070B);
+      color: var(--ink);
+      overflow: auto;
+    }
+    #app { height: auto; min-height: 100vh; }
+    #topbar { background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.008)); border-bottom: 1px solid var(--edge); box-shadow: none; }
+    #topbar-title { letter-spacing: .34em; font-size: 11px; color: var(--ink-mid); text-shadow: none; }
+    #topbar-title::before { width: 2px; height: 12px; border-radius: 1px; margin-right: 12px; background: var(--run); box-shadow: 0 0 10px var(--run); }
+
+    .mock-head {
+      font-family: var(--sil); font-size: 11px; font-weight: 600; letter-spacing: .28em;
+      text-transform: uppercase; color: var(--ink-mid); padding: 16px 16px 0;
+    }
+    .mock-head b { color: var(--run); font-weight: 600; }
+    .mock-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); padding: 3px 16px 0; }
+    #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(470px,100%),1fr)); gap: 12px; padding: 12px; align-content: start; }
+
+    /* ── Shared card shell ───────────────────────────────────────────────── */
+    .kard {
+      position: relative; overflow: hidden;
+      border: 1px solid var(--edge); border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,.02) 34%, rgba(255,255,255,.012) 100%);
+      box-shadow: 0 1px 0 rgba(255,255,255,.09) inset, 0 18px 40px -20px rgba(0,0,0,.95);
+      padding: 13px 16px 14px;
+      --lit: var(--idle);
+    }
+    .kard--running { --lit: var(--run); }
+    .kard--ok { --lit: var(--ok); }
+    .kard--err { --lit: var(--fault); }
+    .kard::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; pointer-events: none;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.45) 20%, rgba(255,255,255,.07) 58%, transparent);
+    }
+    .k-head { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .k-lamp { width: 3px; height: 15px; border-radius: 2px; background: var(--lit); box-shadow: 0 0 10px var(--lit); flex: none; }
+    .k-name { font-family: var(--sil); font-weight: 500; font-size: 13px; letter-spacing: .24em; text-transform: uppercase; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .k-phase { font-family: var(--mono); font-size: 10.5px; color: var(--lit); opacity: .85; flex: none; }
+    .k-queue { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); flex: none; }
+    .k-status { font-family: var(--sil); font-weight: 600; font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-mid); padding-left: 10px; border-left: 1px solid var(--edge); flex: none; }
+
+    .k-label { font-family: var(--sil); font-weight: 600; font-size: 8px; letter-spacing: .26em; text-transform: uppercase; color: var(--ink-dim); }
+    .k-val { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+    .k-val--dim { color: var(--ink-dim); }
+
+    /* Footer rail — the progress bar, reduced to an edge of light. */
+    .k-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .k-rail { position: relative; flex: 1 1 auto; height: 3px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden; }
+    .k-rail-fill { position: absolute; inset: 0 auto 0 0; width: 0%; border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--lit) 40%, transparent), var(--lit)); box-shadow: 0 0 12px color-mix(in srgb, var(--lit) 70%, transparent); transition: width .35s ease; }
+    .kard--stepless .k-rail-fill { width: 35%; animation: railsweep 2.2s ease-in-out infinite; box-shadow: none; opacity: .5; }
+    @keyframes railsweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(300%); } }
+    .k-foot-txt { font-family: var(--mono); font-size: 10.5px; color: var(--ink-mid); flex: none; }
+    .k-foot-pct { font-family: var(--mono); font-size: 10.5px; color: var(--lit); flex: none; min-width: 34px; text-align: right; }
+
+    /* Identity line — metadata only, never prompt text. */
+    .k-ident { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 11px; }
+    /* The cluster's identity block reads as a column of facts beside the gauges, not a wrapped row
+       of orphans — every label keeps its value directly under it. */
+    .a-rest .k-ident { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin-top: 9px; }
+    .a-rest .k-ident .k-ident-row--wide { grid-column: 1 / -1; }
+    .k-ident-row { display: flex; flex-direction: column; min-width: 0; }
+    .k-ident .k-val { font-size: 11.5px; color: var(--ink-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .k-ident-row--wide { flex: 1 1 180px; }
+    .k-ident-row--off { display: none; }
+
+    svg.k-svg { display: block; overflow: visible; }
+    .k-nosig { fill: var(--ink-dim); font-family: var(--mono); font-size: 8.5px; letter-spacing: .28em; text-anchor: middle; }
+
+    /* ── ALPHA · CLUSTER ─────────────────────────────────────────────────── */
+    .a-row { display: flex; align-items: flex-start; gap: 12px; }
+    .a-gauge { flex: 0 0 auto; text-align: center; }
+    .a-gauge .k-label { display: block; margin-top: 3px; }
+    .a-rest { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+    .a-node { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--glass); border: 1px solid rgba(255,255,255,.05); border-left: 2px solid var(--lit); border-radius: 9px; padding: 5px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .g-track { fill: none; stroke: rgba(226,236,255,.10); stroke-width: 4; stroke-linecap: round; }
+    .g-arc { fill: none; stroke: var(--lit); stroke-width: 4; stroke-linecap: round; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--lit) 75%, transparent)); }
+    .g-dome { stroke: rgba(255,255,255,.14); stroke-width: 1; }
+    .g-big { fill: var(--ink); font-family: var(--mono); font-size: 17px; text-anchor: middle; }
+    .g-sm { fill: var(--run); font-family: var(--mono); font-size: 8.5px; text-anchor: middle; letter-spacing: .1em; opacity: .85; }
+    .g-ripple { fill: none; stroke: #BFD5FF; stroke-width: 1.3; }
+
+    /* ── BETA · ORBIT ────────────────────────────────────────────────────── */
+    .b-row { display: flex; align-items: center; gap: 16px; }
+    .b-disc { flex: 0 0 auto; }
+    .b-grid { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .b-tile { background: var(--glass); border: 1px solid rgba(255,255,255,.05); border-radius: 10px; padding: 6px 9px 7px; }
+    .b-tile--live { border-color: color-mix(in srgb, var(--lit) 30%, rgba(255,255,255,.05)); }
+    .b-tile .k-val { display: block; margin-top: 1px; }
+    .b-tile--live .k-val { color: var(--lit); }
+    .o-track { fill: none; stroke: rgba(226,236,255,.09); stroke-width: 3; }
+    .o-arc { fill: none; stroke: var(--lit); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--lit) 70%, transparent)); }
+    .o-path { fill: none; stroke: rgba(226,236,255,.07); stroke-width: 1; stroke-dasharray: 2 4; }
+    .o-sat { fill: #F2F7FF; filter: drop-shadow(0 0 7px var(--run)); }
+    .o-big { fill: var(--ink); font-family: var(--mono); font-size: 26px; text-anchor: middle; }
+    .o-cap { fill: var(--ink-dim); font-family: var(--sil); font-weight: 600; font-size: 8px; letter-spacing: .26em; text-anchor: middle; }
+    .o-glass { stroke: rgba(255,255,255,.12); stroke-width: 1; }
+
+    /* ── GAMMA · TILES ───────────────────────────────────────────────────── */
+    .c-row { display: flex; gap: 14px; align-items: stretch; }
+    .c-col { position: relative; flex: 0 0 8px; border-radius: 999px; background: rgba(255,255,255,.05); overflow: hidden; }
+    .c-col-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; background: linear-gradient(0deg, var(--lit), color-mix(in srgb, var(--lit) 25%, transparent)); box-shadow: 0 0 14px color-mix(in srgb, var(--lit) 70%, transparent); transition: height .35s ease; }
+    .c-col-scan { position: absolute; left: 0; right: 0; height: 26px; background: linear-gradient(0deg, transparent, rgba(255,255,255,.5), transparent); animation: colscan 2.6s linear infinite; }
+    @keyframes colscan { 0% { bottom: -26px; } 100% { bottom: 100%; } }
+    .c-grid { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .c-tile { background: var(--glass); border: 1px solid rgba(255,255,255,.05); border-radius: 10px; padding: 7px 9px 8px; min-width: 0; }
+    .c-tile--hero { grid-column: span 1; }
+    .c-tile--live { border-color: color-mix(in srgb, var(--lit) 30%, rgba(255,255,255,.05)); }
+    .c-tile .k-val { display: block; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .c-hero-val { font-family: var(--mono); font-size: 27px; line-height: 1; color: var(--lit); display: block; margin-top: 3px; }
+    .c-tile--live .k-val { color: var(--ink); }
+    .c-spark { display: block; width: 100%; height: 16px; margin-top: 3px; }
+    .c-spark-line { fill: none; stroke: var(--lit); stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+    .c-off { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .c-col-scan, .kard--stepless .k-rail-fill { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+    </div>
+    <div class="mock-head">Full card &mdash; <b>&alpha; cluster</b> &middot; <b>&beta; orbit</b> &middot; <b>&gamma; tiles</b></div>
+    <div class="mock-sub">Same job in all three. Rows: generation, then training. The rate cuts out every ~14s.</div>
+    <div id="cards"></div>
+  </div>
+
+  <script>
+  (function () {
+    const SVG = 'http://www.w3.org/2000/svg';
+    const sv = (t, a) => { const e = document.createElementNS(SVG, t); for (const k in (a||{})) e.setAttribute(k, a[k]); return e; };
+    const dv = (cls, txt) => { const e = document.createElement('div'); e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    let uid = 0;
+
+    // ── Formatting: identical rules to job-card.js, including the 1:1 unit flip ──
+    const fmtSec = (s) => {
+      if (s == null || !Number.isFinite(s)) return '--';
+      if (s < 60) return `${s.toFixed(1)}s`;
+      const m = Math.floor(s / 60), r = Math.round(s % 60);
+      return m < 60 ? `${m}m${r}s` : `${Math.floor(m / 60)}h${m % 60}m`;
+    };
+    const fmtRate = (v) => (v == null || !Number.isFinite(v) || v <= 0 ? '--' : v >= 1 ? `${v.toFixed(2)} it/s` : `${(1 / v).toFixed(2)} s/it`);
+    const rateFig = (v) => (v >= 1 ? v.toFixed(2) : (1 / v).toFixed(2));
+    const rateUnit = (v) => (v >= 1 ? 'it/s' : 's/it');
+
+    const LOG_MIN = -Math.log10(20), LOG_MAX = Math.log10(20);
+    const ratePos = (v) => Math.max(0, Math.min(1, (Math.log10(v) - LOG_MIN) / (LOG_MAX - LOG_MIN)));
+
+    // One clock for every animated part on screen.
+    const beats = new Set();
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    (function loop(now) { for (const b of beats) b(now / 1000); requestAnimationFrame(loop); })(0);
+
+    function glassDome(svg, cx, cy, r, cls) {
+      const id = `d${++uid}`;
+      const defs = sv('defs'), g = sv('radialGradient', { id, cx: '34%', cy: '26%', r: '78%' });
+      g.append(
+        sv('stop', { offset: '0', 'stop-color': 'rgba(255,255,255,.11)' }),
+        sv('stop', { offset: '.55', 'stop-color': 'rgba(255,255,255,.02)' }),
+        sv('stop', { offset: '1', 'stop-color': 'rgba(0,0,0,.25)' }),
+      );
+      defs.appendChild(g); svg.appendChild(defs);
+      svg.appendChild(sv('circle', { cx, cy, r, fill: `url(#${id})`, class: cls || 'g-dome' }));
+    }
+    // An arc from -135deg to +135deg (270 of sweep), drawn top-anchored so 0 is bottom-left.
+    const arcPath = (cx, cy, r) => {
+      const a = (d) => [cx + r * Math.cos((d - 90) * Math.PI / 180), cy + r * Math.sin((d - 90) * Math.PI / 180)];
+      const [x0, y0] = a(-135), [x1, y1] = a(135);
+      return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 1 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+    };
+    const identRow = (label, wide) => {
+      const row = dv(`k-ident-row${wide ? ' k-ident-row--wide' : ''}`);
+      const l = dv('k-label', label), v = dv('k-val');
+      row.append(l, v);
+      return { row, l, v };
+    };
+
+    function shell(host) {
+      const card = dv('kard');
+      const head = dv('k-head');
+      const lamp = dv('k-lamp'), name = dv('k-name', host.name), phase = dv('k-phase'),
+            queue = dv('k-queue'), status = dv('k-status');
+      head.append(lamp, name, phase, queue, status);
+      const foot = dv('k-foot');
+      const railTxt = dv('k-foot-txt'), rail = dv('k-rail'), fill = dv('k-rail-fill'), pct = dv('k-foot-pct');
+      rail.appendChild(fill);
+      foot.append(railTxt, rail, pct);
+      card.append(head);
+      return { card, head, phase, queue, status, foot, rail, fill, railTxt, pct };
+    }
+
+    function applyCommon(s, host) {
+      const j = host.job, on = host.status === 'online';
+      const running = !!j && !j.finished;
+      s.card.classList.toggle('kard--running', running);
+      s.card.classList.toggle('kard--ok', j?.finished === 'success');
+      s.card.classList.toggle('kard--err', j?.finished === 'error');
+      const hasSteps = !!j && Number.isFinite(j.maxSteps) && j.maxSteps > 0;
+      s.card.classList.toggle('kard--stepless', running && !hasSteps);
+      s.phase.textContent = running ? j.phase ?? '' : '';
+      s.queue.textContent = host.queue ? `Queue ${host.queue}` : '';
+      s.status.textContent = host.status;
+      const done = hasSteps ? Math.min(j.maxSteps, j.step ?? 0) : null;
+      const ratio = hasSteps ? done / j.maxSteps : null;
+      s.fill.style.width = hasSteps ? `${ratio * 100}%` : '';
+      s.railTxt.textContent = hasSteps ? `Step ${done} / ${j.maxSteps}` : running ? 'No step data' : '';
+      s.pct.textContent = hasSteps ? `${Math.round(ratio * 100)}%` : '';
+      return { j, running, hasSteps, done, ratio };
+    }
+
+    // ══ ALPHA · CLUSTER ══════════════════════════════════════════════════════
+    // A row of small glass gauges. Each one owns a single question: how much is left, how fast,
+    // how long. The ripple in the rate gauge is one ripple per step, at the job's real cadence.
+    function buildAlpha(host) {
+      const s = shell(host);
+      const row = dv('a-row');
+
+      const gauge = (label) => {
+        const wrap = dv('a-gauge');
+        const C = 52, R = 37;
+        const svg = sv('svg', { viewBox: '0 0 104 104', width: 104, height: 104, class: 'k-svg' });
+        glassDome(svg, C, C, R);
+        svg.appendChild(sv('path', { d: arcPath(C, C, R + 6), class: 'g-track' }));
+        const arc = sv('path', { d: arcPath(C, C, R + 6), class: 'g-arc', pathLength: 1, 'stroke-dasharray': '0 1' });
+        const ripple = sv('circle', { cx: C, cy: C, r: 11, class: 'g-ripple' });
+        // Figure above centre, its qualifier below — a value and its unit stacked, never on the
+        // same baseline, so a 5-character ETA cannot collide with the word under it.
+        const bigT = sv('text', { x: C, y: C + 1, class: 'g-big' });
+        const smT = sv('text', { x: C, y: C + 16, class: 'g-sm' });
+        svg.append(arc, ripple, bigT, smT);
+        wrap.append(svg, dv('k-label', label));
+        return { wrap, arc, bigT, smT, ripple };
+      };
+
+      // Two gauges, not three: at a 470px module a third dome leaves the identity block too narrow
+      // to print "Batch Size" without breaking its own label. Time is text — it does not need a
+      // ring to be read.
+      const gSteps = gauge('Steps Left');
+      const gRate = gauge(host.kind === 'aitoolkit' ? 'Training Rate' : 'Sampling Rate');
+      const rest = dv('a-rest');
+      const node = dv('a-node');
+      const ident = dv('k-ident');
+      const model = identRow(host.kind === 'aitoolkit' ? 'Base Model' : 'Model', true);
+      const size = identRow(host.kind === 'aitoolkit' ? 'Resolution' : 'Size');
+      const count = identRow(host.kind === 'aitoolkit' ? 'Rank' : 'Batch Size');
+      const extra = identRow(host.kind === 'aitoolkit' ? 'Loss' : 'Batch ETA');
+      const elapsed = identRow('Elapsed');
+      const eta = identRow('ETA');
+      ident.append(model.row, size.row, count.row, eta.row, elapsed.row, extra.row);
+      rest.append(node, ident);
+      row.append(gSteps.wrap, gRate.wrap, rest);
+      s.card.append(row, s.foot);
+
+      let rate = null;
+      beats.add((t) => {
+        if (rate == null || !(rate > 0) || reduce.matches) { gRate.ripple.style.opacity = 0; return; }
+        const p = (t * rate) % 1;
+        gRate.ripple.setAttribute('r', 11 + p * 25);
+        gRate.ripple.style.opacity = (1 - p) * 0.7;
+      });
+
+      return {
+        el: s.card,
+        update(h) {
+          const { j, running, hasSteps, ratio } = applyCommon(s, h);
+          rate = running && Number.isFinite(j.stepsPerSec) && j.stepsPerSec > 0 ? j.stepsPerSec : null;
+
+          gSteps.arc.setAttribute('stroke-dasharray', `${hasSteps ? ratio.toFixed(4) : 0} 1`);
+          gSteps.bigT.textContent = hasSteps ? String(j.maxSteps - Math.min(j.maxSteps, j.step ?? 0)) : 'N/A';
+          gSteps.smT.textContent = hasSteps ? `of ${j.maxSteps}` : '';
+
+          gRate.arc.setAttribute('stroke-dasharray', `${rate ? ratePos(rate).toFixed(4) : 0} 1`);
+          gRate.bigT.textContent = rate ? rateFig(rate) : '--';
+          gRate.smT.textContent = rate ? rateUnit(rate) : '';
+
+          node.textContent = !j ? (h.status === 'online' ? 'Idle' : 'Unreachable')
+            : j.finished ? (j.stateText ?? (j.finished === 'success' ? 'Finished' : 'Failed'))
+            : j.nodeName ?? j.node ?? 'Running';
+          setIdent(model, j?.model);
+          setIdent(size, j?.size);
+          setIdent(count, h.kind === 'aitoolkit' ? j?.rank : j?.frames ?? j?.batch);
+          setIdent(extra, h.kind === 'aitoolkit' ? (j?.loss != null ? j.loss.toFixed(4) : null) : (j?.jobEtaSec != null ? fmtSec(j.jobEtaSec) : null));
+          setIdent(elapsed, j?.elapsedSec != null ? fmtSec(j.elapsedSec) : null);
+          setIdent(eta, running && j.etaSec != null ? fmtSec(j.etaSec) : null);
+        },
+      };
+    }
+
+    function setIdent(r, v) {
+      const has = v != null && v !== '';
+      r.row.classList.toggle('k-ident-row--off', !has);
+      r.v.textContent = has ? String(v) : '';
+    }
+
+    // ══ BETA · ORBIT ═════════════════════════════════════════════════════════
+    // One glass disc. The ring is progress through the item; the satellite completes exactly one
+    // lap per step, so the card's speed is legible from across the room without reading a number.
+    function buildBeta(host) {
+      const s = shell(host);
+      const row = dv('b-row');
+      const disc = dv('b-disc');
+      const R = 62;
+      const svg = sv('svg', { viewBox: '0 0 132 132', width: 132, height: 132, class: 'k-svg' });
+      glassDome(svg, 66, 66, 50, 'o-glass');
+      svg.appendChild(sv('circle', { cx: 66, cy: 66, r: R - 4, class: 'o-path' }));
+      svg.appendChild(sv('path', { d: arcPath(66, 66, R), class: 'o-track' }));
+      const arc = sv('path', { d: arcPath(66, 66, R), class: 'o-arc', pathLength: 1, 'stroke-dasharray': '0 1' });
+      const sat = sv('circle', { cx: 66, cy: 66 - (R - 4), r: 3.6, class: 'o-sat' });
+      const big = sv('text', { x: 66, y: 68, class: 'o-big' });
+      const cap = sv('text', { x: 66, y: 84, class: 'o-cap' });
+      cap.textContent = 'STEPS LEFT';
+      const nosig = sv('text', { x: 66, y: 100, class: 'k-nosig' });
+      svg.append(arc, sat, big, cap, nosig);
+      disc.appendChild(svg);
+
+      const grid = dv('b-grid');
+      const tile = (label) => {
+        const t = dv('b-tile');
+        const l = dv('k-label', label), v = dv('k-val', '--');
+        t.append(l, v);
+        grid.appendChild(t);
+        return { t, v };
+      };
+      const tRate = tile(host.kind === 'aitoolkit' ? 'Training Rate' : 'Sampling Rate');
+      const tEta = tile('ETA');
+      const tElapsed = tile('Elapsed');
+      const tExtra = tile(host.kind === 'aitoolkit' ? 'Loss' : 'Batch ETA');
+      row.append(disc, grid);
+
+      const node = dv('a-node');
+      const ident = dv('k-ident');
+      const model = identRow(host.kind === 'aitoolkit' ? 'Base Model' : 'Model', true);
+      const size = identRow(host.kind === 'aitoolkit' ? 'Resolution' : 'Size');
+      const count = identRow(host.kind === 'aitoolkit' ? 'Rank' : 'Batch Size');
+      ident.append(model.row, size.row, count.row);
+      s.card.append(row, node, ident, s.foot);
+      node.style.marginTop = '11px';
+
+      let rate = null;
+      beats.add((t) => {
+        if (rate == null || !(rate > 0) || reduce.matches) { sat.style.visibility = 'hidden'; return; }
+        sat.style.visibility = '';
+        const a = ((t * rate) % 1) * Math.PI * 2 - Math.PI / 2;
+        sat.setAttribute('cx', 66 + (R - 4) * Math.cos(a));
+        sat.setAttribute('cy', 66 + (R - 4) * Math.sin(a));
+      });
+
+      const setTile = (x, v, live) => { x.v.textContent = v; x.t.classList.toggle('b-tile--live', !!live); };
+
+      return {
+        el: s.card,
+        update(h) {
+          const { j, running, hasSteps, ratio } = applyCommon(s, h);
+          rate = running && Number.isFinite(j.stepsPerSec) && j.stepsPerSec > 0 ? j.stepsPerSec : null;
+          arc.setAttribute('stroke-dasharray', `${hasSteps ? ratio.toFixed(4) : 0} 1`);
+          big.textContent = hasSteps ? String(j.maxSteps - Math.min(j.maxSteps, j.step ?? 0)) : 'N/A';
+          nosig.textContent = running && !rate ? 'NO RATE' : '';
+          setTile(tRate, fmtRate(j?.stepsPerSec), !!rate);
+          setTile(tEta, running && j.etaSec != null ? fmtSec(j.etaSec) : '--', running && j?.etaSec != null);
+          setTile(tElapsed, j?.elapsedSec != null ? fmtSec(j.elapsedSec) : '--', j?.elapsedSec != null);
+          if (h.kind === 'aitoolkit') setTile(tExtra, j?.loss != null ? j.loss.toFixed(4) : '--', j?.loss != null);
+          else setTile(tExtra, j?.jobEtaSec != null ? fmtSec(j.jobEtaSec) : '--', j?.jobEtaSec != null);
+          node.textContent = !j ? (h.status === 'online' ? 'Idle' : 'Unreachable')
+            : j.finished ? (j.stateText ?? (j.finished === 'success' ? 'Finished' : 'Failed'))
+            : j.nodeName ?? j.node ?? 'Running';
+          setIdent(model, j?.model);
+          setIdent(size, j?.size);
+          setIdent(count, h.kind === 'aitoolkit' ? j?.rank : j?.frames ?? j?.batch);
+        },
+      };
+    }
+
+    // ══ GAMMA · TILES ════════════════════════════════════════════════════════
+    // No round gauges at all: progress is a column of light down the left edge, and every figure
+    // gets its own small glass tile. The rate tile carries a live trace of the last 30 seconds.
+    function buildGamma(host) {
+      const s = shell(host);
+      const row = dv('c-row');
+      const col = dv('c-col');
+      const colFill = dv('c-col-fill');
+      const scan = dv('c-col-scan');
+      col.append(colFill, scan);
+      const grid = dv('c-grid');
+
+      const hero = dv('c-tile c-tile--hero');
+      hero.append(dv('k-label', 'Steps Left'));
+      const heroVal = dv('c-hero-val', 'N/A');
+      const heroSub = dv('k-val k-val--dim', '');
+      hero.append(heroVal, heroSub);
+
+      const tile = (label, span) => {
+        const t = dv('c-tile');
+        if (span) t.style.gridColumn = `span ${span}`;
+        const v = dv('k-val', '--');
+        t.append(dv('k-label', label), v);
+        grid.appendChild(t);
+        return { t, v };
+      };
+      grid.appendChild(hero);
+      hero.style.gridColumn = 'span 1';
+      const tRate = tile(host.kind === 'aitoolkit' ? 'Training Rate' : 'Sampling Rate', 2);
+      const spark = sv('svg', { viewBox: '0 0 120 16', preserveAspectRatio: 'none', class: 'c-spark' });
+      const sparkLine = sv('path', { d: '', class: 'c-spark-line' });
+      spark.appendChild(sparkLine);
+      tRate.t.appendChild(spark);
+      const tEta = tile('ETA');
+      const tElapsed = tile('Elapsed');
+      const tExtra = tile(host.kind === 'aitoolkit' ? 'Loss' : 'Batch ETA');
+      const tModel = tile(host.kind === 'aitoolkit' ? 'Base Model' : 'Model', 2);
+      const tSize = tile(host.kind === 'aitoolkit' ? 'Resolution' : 'Size');
+      const tCount = tile(host.kind === 'aitoolkit' ? 'Rank' : 'Batch', 1);
+      const tNode = tile('Node', 2);
+      row.append(col, grid);
+      s.card.append(row, s.foot);
+
+      const hist = [];
+      return {
+        el: s.card,
+        update(h) {
+          const { j, running, hasSteps, ratio } = applyCommon(s, h);
+          const rate = running && Number.isFinite(j.stepsPerSec) && j.stepsPerSec > 0 ? j.stepsPerSec : null;
+          colFill.style.height = hasSteps ? `${ratio * 100}%` : '0%';
+          scan.style.display = running ? '' : 'none';
+          heroVal.textContent = hasSteps ? String(j.maxSteps - Math.min(j.maxSteps, j.step ?? 0)) : 'N/A';
+          heroSub.textContent = hasSteps ? `of ${j.maxSteps}` : '';
+          hero.classList.toggle('c-tile--live', hasSteps);
+
+          tRate.v.textContent = fmtRate(j?.stepsPerSec);
+          tRate.t.classList.toggle('c-tile--live', !!rate);
+          hist.push(rate);
+          while (hist.length > 60) hist.shift();
+          const pts = hist.map((v, i) => (v == null ? null : { x: 120 - (hist.length - 1 - i) * 2, y: 15 - ratePos(v) * 14 })).filter(Boolean);
+          sparkLine.setAttribute('d', pts.length > 1 ? pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') : '');
+
+          const setT = (x, v, live) => { x.v.textContent = v; x.t.classList.toggle('c-tile--live', !!live); };
+          setT(tEta, running && j.etaSec != null ? fmtSec(j.etaSec) : '--', running && j?.etaSec != null);
+          setT(tElapsed, j?.elapsedSec != null ? fmtSec(j.elapsedSec) : '--', j?.elapsedSec != null);
+          if (h.kind === 'aitoolkit') setT(tExtra, j?.loss != null ? j.loss.toFixed(4) : '--', j?.loss != null);
+          else setT(tExtra, j?.jobEtaSec != null ? fmtSec(j.jobEtaSec) : '--', j?.jobEtaSec != null);
+          setT(tModel, j?.model ?? '--', !!j?.model);
+          setT(tSize, j?.size ?? '--', !!j?.size);
+          const c = h.kind === 'aitoolkit' ? j?.rank : j?.frames ?? j?.batch;
+          setT(tCount, c != null ? String(c) : '--', c != null);
+          setT(tNode, !j ? (h.status === 'online' ? 'Idle' : 'Unreachable')
+            : j.finished ? (j.stateText ?? (j.finished === 'success' ? 'Finished' : 'Failed'))
+            : j.nodeName ?? j.node ?? 'Running', running);
+        },
+      };
+    }
+
+    // ── Data ─────────────────────────────────────────────────────────────────
+    const HOSTS = [
+      {
+        name: 'New Main', kind: 'comfyui', status: 'online', queue: 2,
+        job: {
+          step: 3, maxSteps: 8, stepsPerSec: 0.29, etaSec: 17, elapsedSec: 96, jobEtaSec: 640,
+          node: '9', nodeName: 'KSampler', pass: 5, passTotal: 28,
+          model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1,
+        },
+        tick(j, t) {
+          j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
+          j.stepsPerSec = (t % 28) < 24 ? 0.26 + 0.1 * Math.sin(t / 6) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.elapsedSec += 3.5;
+        },
+      },
+      {
+        name: 'AI-Toolkit', kind: 'aitoolkit', status: 'online', queue: 0,
+        job: {
+          step: 2210, maxSteps: 6000, stepsPerSec: 0.39, etaSec: 9640, elapsedSec: 4210,
+          node: 'train', nodeName: 'w1f3y_h3_v1', phase: 'Training',
+          model: 'MiniMax-H3', size: '512/768/1024', rank: 16, loss: 0.0341,
+        },
+        tick(j, t) {
+          j.step += 1;
+          j.stepsPerSec = (t % 28) < 24 ? 1 / (2.4 + 0.6 * Math.sin(t / 9)) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.elapsedSec += 2.5;
+          j.loss = Math.max(0.005, j.loss + (Math.random() - 0.5) * 0.004);
+        },
+      },
+    ];
+
+    const cardsEl = document.getElementById('cards');
+    const built = [];
+    for (const build of [buildAlpha, buildBeta, buildGamma]) {
+      for (const host of HOSTS) {
+        const tag = build === buildAlpha ? 'α · CLUSTER' : build === buildBeta ? 'β · ORBIT' : 'γ · TILES';
+        const h = { ...host, name: `${host.name}  ·  ${tag}` };
+        const inst = build(h);
+        cardsEl.appendChild(inst.el);
+        built.push({ h, inst, src: host });
+      }
+    }
+
+    let t = 0;
+    setInterval(() => {
+      t += 0.5;
+      for (const host of HOSTS) host.tick(host.job, t);
+      for (const b of built) b.inst.update({ ...b.h, job: b.src.job });
+    }, 500);
+  })();
+  </script>
+</body>
+</html>

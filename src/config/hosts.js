@@ -1,4 +1,8 @@
-// Host list: { name, url, kind, token? } where url is a bare http(s) origin, e.g.
+// Host list: { name, url, kind, hidden?, token? } where url is a bare http(s) origin, e.g.
+//
+// The ARRAY ORDER IS THE RACK ORDER — the renderer lays cards out by it, and drag-reordering a
+// card rewrites this file. So save() must preserve order exactly and never sort.
+// `hidden: true` keeps an entry but stops watching it (no collector, no card); see validate().
 // "http://127.0.0.1:8188". No SSH needed here (unlike guiTOP) — both ComfyUI and ai-toolkit's UI
 // already listen on the network directly, so a remote host is just a different origin.
 //
@@ -55,6 +59,10 @@ function validate(hosts) {
     const kind = KINDS.includes(h.kind) ? h.kind : 'comfyui';
     const entry = { name, url: normalizeUrl(h.url), kind };
     if (typeof h.token === 'string' && h.token) entry.token = h.token;
+    // Hidden = "keep the entry, stop watching it". A machine that is switched off for weeks
+    // should not cost a card in the rack or a reconnect loop, and removing it would lose the URL.
+    // Only ever written true; a visible host carries no flag, so hosts.json stays readable.
+    if (h.hidden === true) entry.hidden = true;
     out.push(entry);
   }
   return out.length ? out : DEFAULT_HOSTS;

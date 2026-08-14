@@ -10,6 +10,13 @@
    guiTOP carries GpuCardBars and GpuCardCorvette — do not fake it with `content:` or `display`
    tricks on values. */
 
+/* The lit arc that widgets/lcd.js draws inside every rate meter is OFF unless a skin asks for it.
+   A printed moving-coil face reads by pointer against ink, and a glowing trace over the graduations
+   would be a second scale saying the same thing. This rule lives here rather than in main.css so
+   the base stylesheet carries no knowledge of which skins exist. */
+.meter-arc-track,
+.meter-arc-value { display: none; }
+
 /* ══ Obsidian Glass ══════════════════════════════════════════════════════════
    The look this app shipped as 0.0.2, kept as a skin: near-black blue field, translucent
    gradient cards, cyan glow, no bolts, no faceplate. The instruments stay — the meter is what
@@ -132,17 +139,23 @@ body.skin-glass .meter-hub {
 
 body.skin-glass .meter-sheen-hi { stop-color: rgba(255, 255, 255, 0.07); }
 
-body.skin-glass .meter--nosignal .meter-face { fill: rgba(0, 0, 0, 0.5); }
-body.skin-glass .meter--nosignal .meter-tick,
-body.skin-glass .meter--nosignal .meter-tick--major,
-body.skin-glass .meter--nosignal .meter-tick--centre { stroke: rgba(255, 255, 255, 0.12); }
-body.skin-glass .meter--nosignal .meter-label { fill: rgba(255, 255, 255, 0.22); }
-body.skin-glass .meter--nosignal .meter-nosignal { fill: rgba(255, 255, 255, 0.3); }
-body.skin-glass .meter--nosignal .meter-needle {
+/* Same split as the rack skin: --nosignal says "no reading", --dark says "lamp off". Overriding
+   only --nosignal here would have kept this skin blinking between batch items. */
+/* This skin's face is dark whether the lamp is on or off, so the legend stays light ink in both
+   states — the rack skin's dark-ink-on-ivory rule must not leak in here. */
+body.skin-glass .meter--nosignal .meter-nosignal,
+body.skin-glass .meter--nosignal:not(.meter--dark) .meter-nosignal { fill: rgba(255, 255, 255, 0.3); }
+
+body.skin-glass .meter--dark .meter-face { fill: rgba(0, 0, 0, 0.5); }
+body.skin-glass .meter--dark .meter-tick,
+body.skin-glass .meter--dark .meter-tick--major,
+body.skin-glass .meter--dark .meter-tick--centre { stroke: rgba(255, 255, 255, 0.12); }
+body.skin-glass .meter--dark .meter-label { fill: rgba(255, 255, 255, 0.22); }
+body.skin-glass .meter--dark .meter-needle {
   stroke: rgba(255, 255, 255, 0.2);
   filter: none;
 }
-body.skin-glass .meter--nosignal .meter-hub { fill: rgba(255, 255, 255, 0.12); stroke: none; }
+body.skin-glass .meter--dark .meter-hub { fill: rgba(255, 255, 255, 0.12); stroke: none; }
 
 body.skin-glass .jc-node {
   background: rgba(0, 0, 0, 0.42);
@@ -188,9 +201,393 @@ body.skin-glass .settings-input {
 
 body.skin-glass .settings-remove-btn,
 body.skin-glass .settings-add-btn,
+body.skin-glass .settings-move-btn,
+body.skin-glass .settings-hide-btn,
 body.skin-glass #settings-btn,
-body.skin-glass #skin-select {
+body.skin-glass #topbar-controls select {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.10);
   box-shadow: none;
+}
+
+/* ══ Obsidian Halo ═══════════════════════════════════════════════════════════
+   Obsidian Glass's field and materials, with the retro instrument taken out of it. Nothing here
+   is printed, engraved or bolted: the module is a pane of smoked glass in a machined titanium
+   frame, and the rate is read off a LIT ARC rather than ink and a red pointer.
+
+   THE SIGNATURE, and the only bright thing on the card: the halo. A dim titanium track runs the
+   full sweep; the measured part of it lights in xenon behind a hairline beam that crosses it at
+   the reading. That is the one place this skin spends any glow — everything else is hairlines,
+   translucency and one weight of light. The needle geometry underneath is unchanged (same widget,
+   same ballistics, same honesty rules), it is just dashed down to its outer 26 units so what shows
+   is a floating beam instead of a pointer hinged to a hub.
+
+   Palette is deliberately NOT the glass skin's cyan and not the rack's amber: xenon azure for
+   live, aqua for done, magenta-red for a fault. Two skins glowing the same colour would make the
+   dropdown feel like a brightness control. */
+
+body.skin-halo {
+  --chassis:    #05070B;
+  --face:       rgba(255, 255, 255, 0.035);
+  --face-hi:    rgba(255, 255, 255, 0.075);
+  --face-lo:    rgba(255, 255, 255, 0.015);
+  --well:       rgba(255, 255, 255, 0.028);
+
+  --legend:     #E6ECF6;
+  --legend-mid: rgba(230, 236, 246, 0.56);
+  --legend-dim: rgba(230, 236, 246, 0.27);
+
+  /* The face is smoked glass, so the instrument's own ink is light. */
+  --meter-face: #070A10;
+  --meter-ink:  rgba(226, 236, 255, 0.62);
+
+  --lamp-run:   #7FA8FF;
+  --lamp-ok:    #45E3B0;
+  --lamp-fault: #FF5470;
+  --lamp-idle:  #55606E;
+  --lamp-wait:  #FFC46B;
+
+  --bevel-hi: rgba(255, 255, 255, 0.10);
+  --bevel-lo: rgba(0, 0, 0, 0.55);
+
+  --radius: 14px;
+  --radius-sm: 9px;
+
+  background:
+    radial-gradient(120% 70% at 50% -20%, rgba(127, 168, 255, 0.10), transparent 62%),
+    radial-gradient(90% 60% at 100% 110%, rgba(69, 227, 176, 0.05), transparent 70%),
+    linear-gradient(180deg, #070A10 0%, #04060A 55%, var(--chassis) 100%);
+}
+
+body.skin-halo #topbar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.008));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 10px 30px -12px rgba(0, 0, 0, 0.9);
+}
+
+body.skin-halo #topbar-title {
+  letter-spacing: 0.34em;
+  font-size: 11px;
+  color: var(--legend-mid);
+  text-shadow: none;
+}
+
+/* Every lamp in this skin is a sliver of edge light, not a domed jewel — including this one. */
+body.skin-halo #topbar-title::before {
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  margin-right: 12px;
+  background: var(--lamp-run);
+  box-shadow: 0 0 10px var(--lamp-run);
+}
+
+body.skin-halo .job-card {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.075) 0%,
+    rgba(255, 255, 255, 0.022) 34%,
+    rgba(255, 255, 255, 0.012) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.09) inset,
+    0 18px 40px -20px rgba(0, 0, 0, 0.95);
+}
+
+/* Light catching a machined top edge. One hairline, brightest a fifth of the way in — a straight
+   even line reads as a border, an uneven one reads as a reflection. */
+body.skin-halo .job-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 20%,
+    rgba(255, 255, 255, 0.07) 58%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* The running module is the one the eye should land on: its frame picks up the live colour. */
+body.skin-halo .job-card--running,
+body.skin-halo .job-card--finished-success,
+body.skin-halo .job-card--finished-error {
+  border-color: color-mix(in srgb, var(--lit) 26%, rgba(255, 255, 255, 0.075));
+}
+
+body.skin-halo .job-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 20px 46px -20px rgba(0, 0, 0, 1);
+}
+
+body.skin-halo .jc-bolt { display: none; }
+
+body.skin-halo .jc-head {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  padding-bottom: 10px;
+}
+
+/* Status lamp as a light bar in the frame, the way a modern instrument shows power. */
+body.skin-halo .jc-jewel {
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--lit);
+  box-shadow: 0 0 10px var(--lit), 0 0 22px color-mix(in srgb, var(--lit) 45%, transparent);
+}
+
+body.skin-halo .jc-name {
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  color: var(--legend);
+  text-shadow: none;
+}
+
+body.skin-halo .jc-status {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+  letter-spacing: 0.22em;
+}
+
+body.skin-halo .jc-status--online { color: var(--legend-mid); }
+body.skin-halo .jc-status--offline { color: var(--lamp-fault); }
+body.skin-halo .jc-status--connecting { color: var(--lamp-wait); }
+
+/* Wells are panes, not pits: no inset shadow, one hairline, one specular top edge. */
+body.skin-halo .jc-well {
+  background: var(--well);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+/* ── The halo instrument ── */
+/* No dial pane. A bounded rectangle with a scale inside it is a picture of a gauge, and it was the
+   single thing keeping this face looking like the printed one — the instrument reads as part of
+   the module now, drawn straight onto the well glass. The well's own hairline is the only frame. */
+body.skin-halo .meter-face {
+  fill: rgba(255, 255, 255, 0.022);
+  stroke: none;
+  rx: 12px;
+}
+
+/* The backlight is a pool of light rising from the pivot, not a lit panel — it puts the glow where
+   the instrument is instead of drawing a second rectangle inside the well. It follows the LAMP
+   (.meter--dark), not the reading, so it cannot blink between batch items. */
+body.skin-halo .meter {
+  border-radius: 12px;
+  background: radial-gradient(
+    115% 105% at 50% 116%,
+    color-mix(in srgb, var(--lamp-run) 14%, transparent),
+    transparent 68%
+  );
+  transition: background 400ms ease;
+}
+
+body.skin-halo .meter--dark {
+  background: radial-gradient(115% 105% at 50% 116%, rgba(255, 255, 255, 0.02), transparent 68%);
+}
+
+/* Graduations recede to the edge of legibility — the arc is the scale now, and the numbers are
+   there for the one moment you want to read the pointer against a figure. */
+body.skin-halo .meter-tick { stroke: rgba(226, 236, 255, 0.10); }
+body.skin-halo .meter-tick--major { stroke: rgba(226, 236, 255, 0.34); stroke-width: 1.2; }
+body.skin-halo .meter-tick--centre { stroke: var(--lamp-run); stroke-width: 1.6; }
+
+/* Mono, not the silkscreen face: on this instrument the numbers are data, not printing. */
+body.skin-halo .meter-label {
+  fill: var(--meter-ink);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+}
+
+body.skin-halo .meter-unit {
+  fill: rgba(226, 236, 255, 0.22);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+body.skin-halo .meter--reading-slow .meter-unit--slow,
+body.skin-halo .meter--reading-fast .meter-unit--fast {
+  fill: var(--lamp-run);
+}
+
+body.skin-halo .meter-arc-track,
+body.skin-halo .meter-arc-value {
+  display: block;
+  fill: none;
+}
+
+body.skin-halo .meter-arc-track {
+  stroke: rgba(226, 236, 255, 0.10);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* Round caps are safe here ONLY because lcd.js hides this path below a hair of length — the same
+   zero-length-dash-paints-a-dot trap the old arc gauge hit. Do not drop that guard. */
+body.skin-halo .meter-arc-value {
+  stroke: var(--lamp-run);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--lamp-run) 80%, transparent));
+}
+
+/* The pointer, dashed down to its outer 26 units: a beam that crosses the arc at the reading and
+   is attached to nothing. Leading zero-length dash + butt caps on purpose — a round cap paints a
+   lit dot at the pivot, which is exactly the kind of thing this app must never draw. */
+body.skin-halo .meter-needle {
+  stroke: #F2F7FF;
+  stroke-width: 1.3;
+  stroke-linecap: butt;
+  stroke-dasharray: 0 37 26;
+  filter: drop-shadow(0 0 4px var(--lamp-run)) drop-shadow(0 0 10px color-mix(in srgb, var(--lamp-run) 55%, transparent));
+}
+
+/* Nothing hinges, so there is no hub — and the curved-lens sheen belongs to a glass dial cover
+   this instrument does not have. */
+body.skin-halo .meter-hub,
+body.skin-halo .meter-glass { display: none; }
+
+body.skin-halo .meter-nosignal {
+  fill: rgba(226, 236, 255, 0.30);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.34em;
+}
+
+/* Same two states as every other skin, and both have to be overridden here: --nosignal is "no
+   reading" (parked beam, NO SIGNAL), --dark is "lamp off" (no reading AND nothing running).
+   Overriding only the first is what makes a skin blink through a batch run. */
+body.skin-halo .meter--nosignal:not(.meter--dark) .meter-nosignal { fill: rgba(226, 236, 255, 0.30); }
+
+body.skin-halo .meter--nosignal .meter-needle {
+  stroke: rgba(226, 236, 255, 0.22);
+  filter: none;
+}
+
+body.skin-halo .meter--dark .meter-face { fill: #05070C; stroke: rgba(255, 255, 255, 0.03); }
+body.skin-halo .meter--dark .meter-arc-track { stroke: rgba(226, 236, 255, 0.045); }
+body.skin-halo .meter--dark .meter-tick { stroke: rgba(226, 236, 255, 0.05); }
+body.skin-halo .meter--dark .meter-tick--major { stroke: rgba(226, 236, 255, 0.14); }
+body.skin-halo .meter--dark .meter-tick--centre { stroke: rgba(226, 236, 255, 0.18); }
+body.skin-halo .meter--dark .meter-label { fill: rgba(226, 236, 255, 0.18); }
+body.skin-halo .meter--dark .meter-unit { fill: rgba(226, 236, 255, 0.14); }
+body.skin-halo .meter--dark .meter-needle { stroke: rgba(226, 236, 255, 0.13); }
+body.skin-halo .meter--dark .meter-nosignal { fill: rgba(226, 236, 255, 0.20); }
+
+/* ── Readouts ── */
+body.skin-halo .jc-well-legend { letter-spacing: 0.3em; font-weight: 500; }
+body.skin-halo .jc-well--live .jc-well-legend { text-shadow: 0 0 10px color-mix(in srgb, var(--lit) 55%, transparent); }
+
+body.skin-halo .lcd-seg--ghost { opacity: 0.045; }
+body.skin-halo .lcd-lit { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--lit) 55%, transparent)); }
+
+body.skin-halo .jc-ident-label,
+body.skin-halo .jc-legend-label { letter-spacing: 0.26em; }
+
+body.skin-halo .jc-ident-value { color: var(--legend-mid); }
+body.skin-halo .jc-legend-value { color: var(--legend); }
+body.skin-halo .jc-legend-value--empty { color: var(--legend-dim); }
+
+/* The node strip is a chip of the same glass, lit along one edge. */
+body.skin-halo .jc-node {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 2px solid var(--lit);
+  border-radius: var(--radius-sm);
+  color: var(--legend);
+}
+
+/* A blanking panel has no chip to frame — main.css strips it, and the border above would put a
+   lit bracket beside the word IDLE. (Same trap the glass skin hit.) */
+body.skin-halo .job-card--blank .jc-node {
+  background: none;
+  border: none;
+}
+
+/* A hairline capsule, not an LED bargraph: cells are a segmented-display idea and this instrument
+   has none. The fill still carries the card colour, so progress reads the same across skins. */
+body.skin-halo .jc-bar-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+body.skin-halo .jc-bar-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--lit) 45%, transparent), var(--lit));
+  border-radius: 999px;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--lit) 70%, transparent);
+}
+
+body.skin-halo .jc-bar-cells { display: none; }
+
+body.skin-halo #cards::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); }
+body.skin-halo #cards::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
+body.skin-halo #cards::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Panels and controls ── */
+body.skin-halo .settings-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.09) inset, 0 18px 40px -20px rgba(0, 0, 0, 0.95);
+}
+
+body.skin-halo .settings-title { text-shadow: none; letter-spacing: 0.3em; }
+
+body.skin-halo .settings-host-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+}
+
+body.skin-halo .settings-input,
+body.skin-halo .setup-path {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+body.skin-halo .settings-host-kind { border-color: rgba(255, 255, 255, 0.12); }
+
+/* A gradient, not a flat colour: a flat background-color leaves the native Windows combobox
+   showing straight through inside the panel. */
+body.skin-halo .settings-remove-btn,
+body.skin-halo .settings-add-btn,
+body.skin-halo .settings-move-btn,
+body.skin-halo .settings-hide-btn,
+body.skin-halo #settings-btn,
+body.skin-halo #setup-btn,
+body.skin-halo select.settings-input,
+body.skin-halo #topbar-controls select {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025));
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+body.skin-halo #topbar-controls select { letter-spacing: 0.18em; }
+
+body.skin-halo .settings-move-btn:disabled { color: rgba(230, 236, 246, 0.2); }
+
+body.skin-halo #topbar-controls select:focus-visible,
+body.skin-halo .settings-input:focus-visible,
+body.skin-halo .settings-add-btn:focus-visible,
+body.skin-halo .settings-remove-btn:focus-visible,
+body.skin-halo .settings-hide-btn:focus-visible,
+body.skin-halo .settings-move-btn:focus-visible {
+  outline: 2px solid var(--lamp-run);
+  outline-offset: 2px;
 }

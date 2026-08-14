@@ -17,6 +17,23 @@ function relayDir() {
 // The name ComfyUI will show in its log, and the folder name the instructions tell people to use.
 const RELAY_FOLDER_NAME = 'comfyui-watcher-relay';
 
+/**
+ * What the service actually watches: the configured hosts minus the hidden ones, each stamped
+ * with its position in the rack.
+ *
+ * Hiding STOPS COLLECTING, it does not merely stop drawing. A host is hidden because the machine
+ * is off or not in use, and a widget quietly reconnect-looping against a dead address every 10s
+ * is worse than useless — it also means the card cannot show a stale reading, because there is no
+ * collector to produce one. (The kind filter in the top bar is the other thing: that one is a
+ * view, and a filtered-out host keeps collecting.)
+ *
+ * `order` rides along on the host object so the renderer can lay cards out in config order — the
+ * snapshot map's key order is arrival order, which is whichever host answered first.
+ */
+function watchedHosts(hosts) {
+  return hosts.filter((h) => !h.hidden).map((h, i) => ({ ...h, order: i }));
+}
+
 let mainWindow = null;
 let service = null;
 
@@ -40,7 +57,7 @@ function createWindow() {
       mainWindow.webContents.send('watcher-data', snapshots);
     }
   });
-  service.setHosts(hostsConfig.load());
+  service.setHosts(watchedHosts(hostsConfig.load()));
 
   mainWindow.on('closed', () => {
     if (service) service.stopAll();
@@ -65,7 +82,7 @@ ipcMain.handle('relay:reveal', async () => {
 ipcMain.handle('hosts:get', () => hostsConfig.load());
 ipcMain.handle('hosts:set', (_event, hosts) => {
   const saved = hostsConfig.save(hosts);
-  if (service) service.setHosts(saved);
+  if (service) service.setHosts(watchedHosts(saved));
   return saved;
 });
 

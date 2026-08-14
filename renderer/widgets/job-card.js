@@ -16,8 +16,13 @@
 function fmtSec(s) {
   if (s == null || !Number.isFinite(s)) return '--';
   if (s < 60) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
+  let m = Math.floor(s / 60);
+  let rem = Math.round(s % 60);
+  // Without this, 239.6s prints "3m60s" — a clock reading sixty seconds past the minute.
+  if (rem === 60) {
+    m += 1;
+    rem = 0;
+  }
   if (m < 60) return `${m}m${rem}s`;
   return `${Math.floor(m / 60)}h${m % 60}m`;
 }
@@ -166,6 +171,11 @@ function createCard(hostName, kind) {
   times.append(
     legendValue('Elapsed', 'jc-elapsed'),
     legendValue('ETA', 'jc-eta'),
+    // Whole-batch ETA, next to the per-image one. Two different questions — "when does this image
+    // land" and "when is the run done" — and on a 28-image dataset only the second one is the one
+    // being asked. Hidden entirely on jobs that are not a batch, rather than parked at "--"
+    // beside three live figures.
+    legendValue('Batch ETA', 'jc-jobeta'),
     legendValue('Rate', 'jc-rate'),
   );
   // Loss is the one figure a trainer has that a sampler does not. It goes in the legend row
@@ -191,9 +201,14 @@ function createCard(hostName, kind) {
   meta.className = 'jc-bar-meta';
   const step = document.createElement('span');
   step.className = 'jc-step';
+  // Which item of a batch is running. A dataset workflow is one prompt that runs the sampler once
+  // per prompt line, so "Step 3 / 8" alone repeats 28 times with nothing saying where in the run
+  // you are. Empty (and hidden) for an ordinary single-image job.
+  const batch = document.createElement('span');
+  batch.className = 'jc-batch';
   const pct = document.createElement('span');
   pct.className = 'jc-pct';
-  meta.append(step, pct);
+  meta.append(step, batch, pct);
   bar.append(track, meta);
 
   card.append(head, body, bar);
@@ -218,14 +233,17 @@ function updateCard(card, hostName, snapshot) {
   const fill = card.querySelector('.jc-bar-fill');
   const stepEl = card.querySelector('.jc-step');
   const pctEl = card.querySelector('.jc-pct');
+  setBatch(card, job);
 
   card.classList.toggle('job-card--finished-success', job?.finished === 'success');
   card.classList.toggle('job-card--finished-error', job?.finished === 'error');
   card.classList.toggle('job-card--running', !!job && !job.finished);
-  // No job at all: the module collapses to a blanking panel — nameplate, lamp, one state word.
-  // A dark meter and an N/A readout would be three rows of furniture reporting nothing, and a
-  // watcher is normally looking at a rack where most hosts are idle.
-  card.classList.toggle('job-card--blank', !job);
+  // A module collapses to a blanking panel only when its host is NOT THERE — offline, unreachable,
+  // still connecting. An ONLINE host keeps its instruments even with nothing running: Bryan's call
+  // 2026-08-13, and the reason is that a reachable instance is exactly the thing he is waiting on,
+  // so the card that is about to come alive should already look like an instrument (dark face, NO
+  // SIGNAL, N/A steps) rather than a lid. A host he does not want on screen gets hidden instead.
+  card.classList.toggle('job-card--blank', !job && status !== 'online');
 
   // Real step data means a numeric max AND a step to subtract from it. Anything else is N/A —
   // never a fabricated 0. Foreign jobs on a host without the relay node land here by design.
@@ -253,6 +271,7 @@ function updateCard(card, hostName, snapshot) {
     setLegend(card, '.jc-elapsed', fmtSec(job.elapsedSec));
     setLegend(card, '.jc-eta', '--');
     setLegend(card, '.jc-rate', '--');
+    setJobEta(card, null);
   } else if (job) {
     meter.setRate(job.stepsPerSec ?? null);
     if (hasSteps) lcd.setValue(job.maxSteps - done);
@@ -263,6 +282,7 @@ function updateCard(card, hostName, snapshot) {
     pctEl.textContent = hasSteps ? `${Math.round(ratio * 100)}%` : '';
     setLegend(card, '.jc-elapsed', fmtSec(job.elapsedSec));
     setLegend(card, '.jc-eta', job.etaSec != null ? fmtSec(job.etaSec) : '--');
+    setJobEta(card, job.jobEtaSec);
     setLegend(card, '.jc-rate', fmtRate(job.stepsPerSec));
   } else {
     meter.setRate(null);
@@ -273,6 +293,7 @@ function updateCard(card, hostName, snapshot) {
     pctEl.textContent = '';
     setLegend(card, '.jc-elapsed', '--');
     setLegend(card, '.jc-eta', '--');
+    setJobEta(card, null);
     setLegend(card, '.jc-rate', '--');
   }
 
@@ -296,6 +317,11 @@ function updateCard(card, hostName, snapshot) {
   // A well's legend lights in the card colour only while that instrument is actually reading
   // something — steps present for the readout, a rate for the meter. Same honesty rule as the
   // numerals: lit means live, not merely present.
+  // The dial's lamp follows the JOB, not the reading: lit for as long as something is running on
+  // this host, so it cannot blink between batch items or while a model loads. setRate still parks
+  // the needle and shows NO SIGNAL whenever there is nothing to read.
+  meter.setPowered(!!job && !job.finished);
+
   const rateLive = !!job && !job.finished && Number.isFinite(job.stepsPerSec) && job.stepsPerSec > 0;
   card.querySelector('.jc-well--readout').classList.toggle('jc-well--live', hasSteps);
   card.querySelector('.jc-well--meter').classList.toggle('jc-well--live', rateLive);
@@ -322,6 +348,42 @@ function destroyCard(card) {
   card._parts?.meter?.destroy();
 }
 
+/** Reprint this card's dial after a range change in settings. Keeps the card, keeps the reading. */
+function refreshCardFace(card) {
+  card._parts?.meter?.refreshFace();
+}
+
+/**
+ * "Image 3 / 28", or "Image 3" when the total is unknown (a host whose relay predates
+ * watcher.batch — the count is observed, the total has to be told to us). Hidden entirely unless a
+ * batch is actually running: a one-image job saying "Image 1 / 1" is noise.
+ */
+/**
+ * Whole-batch ETA. Shown only when the collector produced one, which needs the relay's item total
+ * — the same rule the batch counter follows. A single-image job has no second question to answer,
+ * so the slot is removed rather than dashed: a legend of live figures with one dead entry reads as
+ * broken, and the house rule is to hide what we do not know instead of printing a placeholder.
+ */
+function setJobEta(card, jobEtaSec) {
+  const el = card.querySelector('.jc-jobeta');
+  if (!el) return;
+  const show = Number.isFinite(jobEtaSec);
+  // Hide the WRAPPER, not the value span — legendValue() nests the value inside a .jc-legend that
+  // also holds the label, so hiding the span alone leaves a stranded "Batch ETA" with nothing
+  // under it.
+  (el.closest('.jc-legend') ?? el).hidden = !show;
+  if (show) setLegend(card, '.jc-jobeta', fmtSec(jobEtaSec));
+}
+
+function setBatch(card, job) {
+  const el = card.querySelector('.jc-batch');
+  const pass = job && !job.finished ? job.pass ?? null : null;
+  const total = job?.passTotal ?? null;
+  const show = pass != null && (total == null ? pass > 1 : total > 1);
+  el.textContent = show ? (total != null ? `Image ${pass} / ${total}` : `Image ${pass}`) : '';
+  el.classList.toggle('jc-batch--on', show);
+}
+
 function setIdent(card, sel, text, label) {
   const el = card.querySelector(sel);
   el.textContent = text ?? '';
@@ -343,3 +405,4 @@ window.Widgets = window.Widgets || {};
 window.Widgets.createCard = createCard;
 window.Widgets.updateCard = updateCard;
 window.Widgets.destroyCard = destroyCard;
+window.Widgets.refreshCardFace = refreshCardFace;

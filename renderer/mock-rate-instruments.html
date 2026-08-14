@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — rate instrument options (live)</title>
+  <!-- Real stylesheets, real cards, real widget code. The ONLY thing proposed here is what sits in
+       the left-hand well: three instruments that replace the needle dial in the Halo skin. Every
+       card below is fed the same moving data, so the three are judged on the same job. The top row
+       is a generation host (fast, reads in it/s), the bottom row a trainer (slow, reads in s/it) —
+       one instrument has to serve both. Every ~14s the rate drops out entirely so you can see the
+       honest "no reading" state each one falls back to. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+  <style>
+    /* ── MOCK-ONLY: the three candidates. Whichever wins gets promoted into widgets/. ── */
+
+    .mock-head {
+      font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 600;
+      letter-spacing: .28em; text-transform: uppercase;
+      color: rgba(230,236,246,.5); padding: 14px 16px 0;
+    }
+    .mock-head b { color: #7FA8FF; font-weight: 600; }
+    .mock-sub {
+      font-family: 'Share Tech Mono', monospace; font-size: 11px;
+      color: rgba(230,236,246,.32); padding: 2px 16px 0;
+    }
+    /* The dial the candidates replace — hidden, but still updated, so nothing about the card
+       behaves differently in the mock than it will in the app. */
+    .job-card .meter { display: none; }
+
+    .inst { position: relative; width: 100%; }
+    .inst-svg { display: block; width: 100%; height: auto; }
+
+    .inst-label { fill: rgba(226,236,255,.5); font-family: 'Share Tech Mono', monospace; font-size: 8px; text-anchor: middle; }
+    .inst-tick { stroke: rgba(226,236,255,.18); stroke-width: 1; }
+    .inst-unit {
+      fill: rgba(226,236,255,.22); font-family: 'Share Tech Mono', monospace;
+      font-size: 10px; letter-spacing: .12em; transition: fill 250ms ease;
+    }
+    .inst--slow .inst-unit--slow, .inst--fast .inst-unit--fast { fill: #7FA8FF; }
+    .inst-nosignal {
+      fill: rgba(226,236,255,.3); font-family: 'Share Tech Mono', monospace;
+      font-size: 9.5px; letter-spacing: .34em; text-anchor: middle; visibility: hidden;
+    }
+    .inst--nosignal .inst-nosignal { visibility: visible; }
+
+    /* ── A · LADDER — segments light up to the reading, head segment brightest. ── */
+    .lad-seg { fill: rgba(226,236,255,.10); transition: fill 120ms linear; }
+    .lad-seg--on { fill: #4E7BD6; }
+    .lad-seg--head { fill: #F2F7FF; filter: drop-shadow(0 0 6px #7FA8FF); }
+    .lad-peak { stroke: rgba(242,247,255,.45); stroke-width: 1.4; }
+    .inst--dark .lad-seg { fill: rgba(226,236,255,.05); }
+    .inst--dark .lad-peak, .inst--nosignal .lad-peak { visibility: hidden; }
+    .inst--nosignal .lad-seg--on, .inst--nosignal .lad-seg--head { fill: rgba(226,236,255,.10); filter: none; }
+
+    /* ── B · TRACE — the figure, big, over the last 45 seconds of it. ── */
+    .tr-value { fill: #F2F7FF; font-family: 'Share Tech Mono', monospace; font-size: 30px; }
+    .tr-unit { fill: #7FA8FF; font-family: 'Share Tech Mono', monospace; font-size: 11px; letter-spacing: .12em; }
+    .tr-line { fill: none; stroke: #7FA8FF; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 5px rgba(127,168,255,.7)); }
+    .tr-fill { fill: rgba(127,168,255,.14); stroke: none; }
+    .tr-base { stroke: rgba(226,236,255,.10); stroke-width: 1; }
+    .tr-guide { stroke: rgba(226,236,255,.09); stroke-width: 1; stroke-dasharray: 2 4; }
+    .tr-head { fill: #F2F7FF; filter: drop-shadow(0 0 5px #7FA8FF); }
+    .inst--nosignal .tr-value { fill: rgba(226,236,255,.22); }
+    .inst--nosignal .tr-unit { fill: rgba(226,236,255,.18); }
+    .inst--dark .tr-line { stroke: rgba(226,236,255,.14); filter: none; }
+    .inst--dark .tr-fill { fill: rgba(226,236,255,.03); }
+    .inst--dark .tr-head { display: none; }
+
+    /* ── C · RAIL — one rail, a lit run up to the reading, the figure riding the marker. ── */
+    .rail-track { stroke: rgba(226,236,255,.10); stroke-width: 3; stroke-linecap: round; }
+    .rail-run { stroke: #7FA8FF; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 6px rgba(127,168,255,.7)); }
+    .rail-mark { fill: #F2F7FF; filter: drop-shadow(0 0 6px #7FA8FF); }
+    .rail-tag { fill: rgba(127,168,255,.14); stroke: rgba(127,168,255,.45); stroke-width: 1; }
+    .rail-tag-text { fill: #F2F7FF; font-family: 'Share Tech Mono', monospace; font-size: 12px; text-anchor: middle; }
+    .inst--nosignal .rail-run, .inst--nosignal .rail-mark, .inst--nosignal .rail-tag, .inst--nosignal .rail-tag-text { visibility: hidden; }
+    .inst--dark .rail-track { stroke: rgba(226,236,255,.05); }
+  </style>
+</head>
+<body class="skin-halo size-normal">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <div id="topbar-controls">
+        <select id="skin-select" title="Skin">
+          <option value="halo" selected>Obsidian Halo</option>
+          <option value="glass">Obsidian Glass</option>
+          <option value="rack">1U Rack</option>
+        </select>
+        <button id="settings-btn" title="Manage hosts">&#9881;</button>
+      </div>
+    </div>
+    <div class="mock-head">Rate instrument &mdash; <b>A ladder</b> &middot; <b>B trace</b> &middot; <b>C rail</b></div>
+    <div class="mock-sub">Same job, same data, three readouts. Top row generation, bottom row training. The rate cuts out every ~14s.</div>
+    <div id="cards"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script>
+  (function () {
+    const SVG = 'http://www.w3.org/2000/svg';
+    const el = (t, a) => { const e = document.createElementNS(SVG, t); for (const k in (a||{})) e.setAttribute(k, a[k]); return e; };
+
+    // Same faces the dial prints, at their default end stops: the instrument may change, the scale
+    // it reads against must not.
+    const FACES = {
+      sampling: {
+        minLog: -Math.log10(20), maxLog: Math.log10(20), single: false,
+        slow: 's/it', fast: 'it/s',
+        labels: [[1/20,'20'],[1/10,'10'],[1/5,'5'],[1/2,'2'],[1,'1'],[2,'2'],[5,'5'],[10,'10'],[20,'20']],
+      },
+      training: {
+        minLog: -Math.log10(60), maxLog: 0, single: true,
+        slow: 'sec/iter',
+        labels: [[1/60,'60'],[1/20,'20'],[1/10,'10'],[1/5,'5'],[1/2,'2'],[1,'1']],
+      },
+    };
+    const pos = (f, v) => Math.max(0, Math.min(1, (Math.log10(v) - f.minLog) / (f.maxLog - f.minLog)));
+    // Same 1.0 cutover fmtRate() uses, so the instrument and the printed figure never disagree.
+    const fig = (v) => (v >= 1 ? v.toFixed(2) : (1 / v).toFixed(2));
+    const unitOf = (f, v) => (f.single || v < 1 ? f.slow : f.fast);
+
+    function shell(faceName, vbW, vbH) {
+      const face = FACES[faceName];
+      const wrap = document.createElement('div');
+      wrap.className = 'inst';
+      const svg = el('svg', { viewBox: `0 0 ${vbW} ${vbH}`, class: 'inst-svg' });
+      wrap.appendChild(svg);
+      return { face, wrap, svg };
+    }
+
+    function lighting(wrap, face, rate, powered) {
+      const live = rate != null && Number.isFinite(rate) && rate > 0;
+      wrap.classList.toggle('inst--nosignal', !live);
+      wrap.classList.toggle('inst--dark', !live && !powered);
+      wrap.classList.toggle('inst--slow', live && (face.single || rate < 1));
+      wrap.classList.toggle('inst--fast', live && !face.single && rate >= 1);
+      return live;
+    }
+
+    // Scale labels + tick hairlines + the unit word(s), shared by the ladder and the rail: this is
+    // the part that has to stay whatever the instrument looks like.
+    function printScale(svg, face, x0, x1, tickY, tickLen, labelY, unitY) {
+      for (const [v, text] of face.labels) {
+        const x = x0 + (x1 - x0) * pos(face, v);
+        svg.appendChild(el('line', { x1: x, y1: tickY, x2: x, y2: tickY + tickLen, class: 'inst-tick' }));
+        const t = el('text', { x, y: labelY, class: 'inst-label' });
+        t.textContent = text;
+        svg.appendChild(t);
+      }
+      const slow = el('text', { x: x0, y: unitY, class: 'inst-unit inst-unit--slow', 'text-anchor': 'start' });
+      slow.textContent = face.slow;
+      svg.appendChild(slow);
+      if (!face.single) {
+        const fast = el('text', { x: x1, y: unitY, class: 'inst-unit inst-unit--fast', 'text-anchor': 'end' });
+        fast.textContent = face.fast;
+        svg.appendChild(fast);
+      }
+    }
+
+    // ── A · LADDER ────────────────────────────────────────────────────────────
+    function makeLadder(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 90);
+      const X0 = 6, X1 = 234, N = 32, W = (X1 - X0) / N;
+      const segs = [];
+      for (let i = 0; i < N; i++) {
+        const s = el('rect', { x: X0 + i * W + 1.3, y: 10, width: W - 2.6, height: 34, rx: 1, class: 'lad-seg' });
+        svg.appendChild(s);
+        segs.push(s);
+      }
+      // Peak hold: the fastest reading of the last 30s, kept as a hairline. Cheap, and it answers
+      // "was it always this slow" without a second instrument.
+      const peak = el('line', { x1: 0, y1: 7, x2: 0, y2: 47, class: 'lad-peak' });
+      svg.appendChild(peak);
+      printScale(svg, face, X0 + W / 2, X1 - W / 2, 50, 5, 67, 86);
+      const ns = el('text', { x: 120, y: 32, class: 'inst-nosignal' });
+      ns.textContent = 'NO SIGNAL';
+      svg.appendChild(ns);
+
+      let rate = null, powered = false;
+      const peaks = [];
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        const head = live ? Math.round(pos(face, rate) * (N - 1)) : -1;
+        for (let i = 0; i < N; i++) {
+          segs[i].classList.toggle('lad-seg--on', i <= head);
+          segs[i].classList.toggle('lad-seg--head', i === head);
+        }
+        const top = peaks.length ? Math.max(...peaks) : null;
+        peak.style.visibility = live && top ? '' : 'hidden';
+        if (top) {
+          const x = X0 + W / 2 + (X1 - X0 - W) * pos(face, top);
+          peak.setAttribute('x1', x);
+          peak.setAttribute('x2', x);
+        }
+      }
+      draw();
+      return {
+        el: wrap,
+        setRate(v) {
+          rate = v;
+          peaks.push(v != null && Number.isFinite(v) && v > 0 ? v : 0);
+          while (peaks.length > 60) peaks.shift();
+          draw();
+        },
+        setPowered(on) { powered = on; draw(); },
+      };
+    }
+
+    // ── B · TRACE ─────────────────────────────────────────────────────────────
+    function makeTrace(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 104);
+      const X0 = 6, X1 = 234, Y0 = 46, Y1 = 98, KEEP = 90; // 45s at the card's 500ms update
+      svg.appendChild(el('line', { x1: X0, y1: Y1, x2: X1, y2: Y1, class: 'tr-base' }));
+      // The 1:1 line — where the reading flips from s/it to it/s. The one level on this trace that
+      // means something on its own.
+      if (!face.single) {
+        const y11 = Y1 - (Y1 - Y0) * pos(face, 1);
+        svg.appendChild(el('line', { x1: X0, y1: y11, x2: X1, y2: y11, class: 'tr-guide' }));
+      }
+      const fill = el('path', { d: '', class: 'tr-fill' });
+      const line = el('path', { d: '', class: 'tr-line' });
+      const head = el('circle', { r: 3, cx: -9, cy: -9, class: 'tr-head' });
+      const value = el('text', { x: X0, y: 32, class: 'tr-value' });
+      const unit = el('text', { x: X0, y: 32, class: 'tr-unit' });
+      const ns = el('text', { x: 120, y: 76, class: 'inst-nosignal' });
+      ns.textContent = 'NO SIGNAL';
+      svg.append(fill, line, head, value, unit, ns);
+
+      const hist = [];
+      let rate = null, powered = false;
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        value.textContent = live ? fig(rate) : '--';
+        unit.textContent = live ? unitOf(face, rate) : '';
+        // The unit rides beside the figure, so it never lands in the same place twice.
+        unit.setAttribute('x', X0 + value.getComputedTextLength() + 7);
+        // Newest sample pinned to the right edge, history flowing off the left: a trace that grows
+        // out of the left edge reads as "the job started 4 seconds ago" for the first 45s of every
+        // run, which is not what it is saying.
+        const pts = hist.map((v, i) => {
+          const x = X1 - (X1 - X0) * ((hist.length - 1 - i) / (KEEP - 1));
+          const y = v == null ? null : Y1 - (Y1 - Y0) * pos(face, v);
+          return { x, y };
+        }).filter((p) => p.y != null);
+        if (pts.length > 1) {
+          const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+          line.setAttribute('d', d);
+          fill.setAttribute('d', `${d} L ${pts[pts.length - 1].x.toFixed(1)} ${Y1} L ${pts[0].x.toFixed(1)} ${Y1} Z`);
+        } else {
+          line.setAttribute('d', '');
+          fill.setAttribute('d', '');
+        }
+        const last = pts[pts.length - 1];
+        if (live && last) { head.setAttribute('cx', last.x); head.setAttribute('cy', last.y); }
+        head.style.visibility = live && last ? '' : 'hidden';
+      }
+      draw();
+      return {
+        el: wrap,
+        setRate(v) {
+          rate = v;
+          hist.push(v != null && Number.isFinite(v) && v > 0 ? v : null);
+          while (hist.length > KEEP) hist.shift();
+          draw();
+        },
+        setPowered(on) { powered = on; draw(); },
+      };
+    }
+
+    // ── C · RAIL ──────────────────────────────────────────────────────────────
+    function makeRail(faceName) {
+      const { face, wrap, svg } = shell(faceName, 240, 92);
+      const X0 = 12, X1 = 228, Y = 52;
+      svg.appendChild(el('line', { x1: X0, y1: Y, x2: X1, y2: Y, class: 'rail-track' }));
+      const run = el('line', { x1: X0, y1: Y, x2: X0, y2: Y, class: 'rail-run' });
+      const mark = el('rect', { x: X0 - 2.5, y: Y - 11, width: 5, height: 22, rx: 2.5, class: 'rail-mark' });
+      const tag = el('rect', { x: 0, y: 8, width: 52, height: 23, rx: 7, class: 'rail-tag' });
+      const tagText = el('text', { x: 0, y: 24, class: 'rail-tag-text' });
+      const ns = el('text', { x: 120, y: 25, class: 'inst-nosignal' });
+      ns.textContent = 'NO SIGNAL';
+      svg.append(run, mark, tag, tagText, ns);
+      printScale(svg, face, X0, X1, 60, 5, 76, 90);
+
+      let rate = null, powered = false;
+      function draw() {
+        const live = lighting(wrap, face, rate, powered);
+        const x = X0 + (X1 - X0) * (live ? pos(face, rate) : 0);
+        run.setAttribute('x2', x);
+        mark.setAttribute('x', x - 2.5);
+        tagText.textContent = live ? `${fig(rate)} ${unitOf(face, rate)}` : '';
+        const w = live ? tagText.getComputedTextLength() + 16 : 0;
+        // The tag rides the marker but never leaves the rail.
+        const tx = Math.max(X0, Math.min(X1 - w, x - w / 2));
+        tag.setAttribute('x', tx);
+        tag.setAttribute('width', w);
+        tagText.setAttribute('x', tx + w / 2);
+      }
+      draw();
+      return { el: wrap, setRate(v) { rate = v; draw(); }, setPowered(on) { powered = on; draw(); } };
+    }
+
+    // ── The rack: two hosts x three instruments, all fed one moving job ────────
+    const MAKERS = [['A · Ladder', makeLadder], ['B · Trace', makeTrace], ['C · Rail', makeRail]];
+    const ROWS = [
+      {
+        name: 'New Main', kind: 'comfyui', face: 'sampling',
+        job: {
+          step: 3, maxSteps: 8, stepsPerSec: 0.29, etaSec: 17, elapsedSec: 96, jobEtaSec: 640,
+          node: '9', nodeName: 'KSampler', pass: 5, passTotal: 28,
+          model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1,
+        },
+        tick(j, t) {
+          j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
+          if (j.step === 1) j.pass = (j.pass % j.passTotal) + 1;
+          // A real run wanders, then the window empties between items and there is nothing to read.
+          j.stepsPerSec = (t % 28) < 24 ? 0.24 + 0.1 * Math.sin(t / 6) + Math.random() * 0.03 : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.elapsedSec += 3.5;
+        },
+      },
+      {
+        name: 'AI-Toolkit', kind: 'aitoolkit', face: 'training',
+        job: {
+          step: 2210, maxSteps: 6000, stepsPerSec: 0.39, etaSec: 9640, elapsedSec: null,
+          node: 'train', nodeName: 'w1f3y_h3_v1', phase: 'Training',
+          model: 'MiniMax-H3', size: '512/768/1024', rank: 16, loss: 0.0341,
+        },
+        tick(j, t) {
+          j.step += 1;
+          j.stepsPerSec = (t % 28) < 24 ? 1 / (2.4 + 0.6 * Math.sin(t / 9) + Math.random() * 0.2) : null;
+          j.etaSec = j.stepsPerSec ? (j.maxSteps - j.step) / j.stepsPerSec : null;
+          j.loss = Math.max(0.005, j.loss + (Math.random() - 0.5) * 0.004);
+        },
+      },
+    ];
+
+    const cardsEl = document.getElementById('cards');
+    const built = [];
+    for (const row of ROWS) {
+      for (const [label, make] of MAKERS) {
+        const card = window.Widgets.createCard(`${row.name}  ·  ${label}`, row.kind);
+        const inst = make(row.face);
+        // Candidate goes where the dial was; the legend under it is untouched.
+        card.querySelector('.jc-well--meter').prepend(inst.el);
+        cardsEl.appendChild(card);
+        built.push({ row, card, inst });
+      }
+    }
+
+    let t = 0;
+    setInterval(() => {
+      t += 0.5;
+      for (const row of ROWS) row.tick(row.job, t);
+      for (const b of built) {
+        const snap = { status: 'online', queueRemaining: 0, currentJob: b.row.job };
+        window.Widgets.updateCard(b.card, b.card.dataset.host, snap);
+        b.inst.setRate(b.row.job.stepsPerSec);
+        b.inst.setPowered(true);
+      }
+    }, 500);
+
+    document.getElementById('skin-select').addEventListener('change', (e) => {
+      document.body.className = `skin-${e.target.value} size-normal`;
+    });
+  })();
+  </script>
+</body>
+</html>

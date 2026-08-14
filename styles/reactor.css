@@ -1,0 +1,961 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Reactor panel — the second card widget (renderer/widgets/reactor-panel.js).
+
+   Loaded after main.css and skins.css. It styles ONLY `.pan` and its children, so a rack card is
+   untouched by this file and a reactor panel is untouched by the skin file; the two widgets share
+   the container (#cards), the SIZE control and the drag/drop marks, and nothing else.
+
+   ONE LAYOUT, TWO IDIOMS. `.pan--room` is a 1960s painted-steel control room: ivory meter faces,
+   incandescent lamps, a split-flap counter. `.pan--console` is the same panel rebuilt in glass and
+   xenon: lit arcs instead of printed faces, nixie tubes instead of leaves. Every idiom difference
+   below is a finish — a colour, a radius, a light — never a different fact on the panel.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* A reactor panel is a wide instrument: three instruments abreast, a recorder and two bulb banks.
+   Below ~470px of panel it stacks (see the container query at the foot of this file), so the track
+   minimum has to clear that in the same terms --card-min is written in for the rack card. Two
+   classes, so these beat the single-class `body.size-*` rules in main.css whatever the file order. */
+body.layout-reactor.size-compact { --card-min: 480px; }
+body.layout-reactor.size-normal { --card-min: 540px; }
+body.layout-reactor.size-large { --card-min: 660px; }
+
+/* ── Panel shell ───────────────────────────────────────────────────────────── */
+.pan {
+  position: relative;
+  border-radius: 4px;
+  padding: 12px 14px 13px;
+  font-family: 'Rajdhani', sans-serif;
+  /* Same two container-level behaviours the rack card has: the SIZE control scales the whole
+     faceplate in LAYOUT space (zoom, not transform — see main.css), and the panel answers to its
+     own width rather than the window's, because a narrow panel can sit in a wide window. */
+  zoom: var(--card-zoom, 1);
+  container-type: inline-size;
+  overflow: hidden;
+  --lit: var(--p-idle);
+}
+
+.pan--run { --lit: var(--p-run); }
+.pan--ok { --lit: var(--p-ok); }
+.pan--err { --lit: var(--p-err); }
+
+/* P1 · CONTROL ROOM — painted steel, warm lamps, ivory faces. */
+.pan--room {
+  --p-face: #2B2F32;
+  --p-ink: #CFC9BA;
+  --p-dim: #7C8288;
+  --p-well: #16191B;
+  --p-run: #FFA22C;
+  --p-ok: #46C68F;
+  --p-err: #E24B3A;
+  --p-idle: #6E7981;
+  --p-wait: #E0B341;
+  --p-glass: #EDE3C6;
+  --p-glass-ink: #23211C;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #34383B 0%, #2B2F32 16%, #24282B 100%);
+  border: 1px solid #0A0C0E;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.6) inset,
+    0 6px 18px rgba(0, 0, 0, 0.55);
+  color: var(--p-ink);
+}
+
+/* P2 · REACTOR CONSOLE — the same panel, glass and xenon. */
+.pan--console {
+  --p-face: rgba(255, 255, 255, 0.035);
+  --p-ink: #E6ECF6;
+  --p-dim: rgba(230, 236, 246, 0.4);
+  --p-well: rgba(0, 0, 0, 0.35);
+  --p-run: #7FA8FF;
+  --p-ok: #45E3B0;
+  --p-err: #FF5470;
+  --p-idle: #55606E;
+  --p-wait: #FFC46B;
+  --p-glass: #070A10;
+  --p-glass-ink: rgba(226, 236, 255, 0.62);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 34%, rgba(255, 255, 255, 0.012) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.09) inset,
+    0 18px 40px -20px rgba(0, 0, 0, 0.95);
+  color: var(--p-ink);
+}
+
+/* Screws are a control-room idiom. The console is machined, not bolted. */
+.pan--console .p-screw { display: none; }
+
+.p-screw {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background:
+    linear-gradient(90deg, transparent 42%, rgba(0, 0, 0, 0.55) 42% 58%, transparent 58%),
+    radial-gradient(circle at 34% 28%, #6C737A, #3A4046 60%, #23282C 100%);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.p-screw--tl { top: 5px; left: 5px; }
+.p-screw--tr { top: 5px; right: 5px; }
+.p-screw--bl { bottom: 5px; left: 5px; }
+.p-screw--br { bottom: 5px; right: 5px; }
+
+/* ── Header: unit designation ── */
+.p-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.p-jewel {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  background: radial-gradient(circle at 34% 28%, #fff 4%, var(--lit) 46%, rgba(0, 0, 0, 0.75) 100%);
+  box-shadow: 0 0 9px var(--lit), 0 0 1px 1px rgba(0, 0, 0, 0.7) inset;
+}
+
+.pan--console .p-jewel {
+  border-radius: 2px;
+  width: 3px;
+  height: 15px;
+  background: var(--lit);
+  box-shadow: 0 0 10px var(--lit);
+}
+
+.p-unit {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--p-dim);
+  flex: none;
+}
+
+.p-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pan--room .p-name { text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.75), 0 1px 0 rgba(255, 255, 255, 0.08); }
+
+.p-mode {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10.5px;
+  color: var(--lit);
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.p-hstat {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+  padding-left: 10px;
+  border-left: 1px solid rgba(0, 0, 0, 0.5);
+  flex: none;
+}
+
+/* ── Annunciator bank ── */
+/* Eight across on a panel wide enough to read them, two rows of four below that. A control room
+   packs its annunciators into one bank; two rows here cost 28px of panel for nothing but habit. */
+.p-ann {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  margin-bottom: 9px;
+}
+
+.p-tile {
+  position: relative;
+  text-align: center;
+  padding: 5px 3px 4px;
+  border-radius: 2px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+  background: var(--p-well);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.pan--console .p-tile {
+  border-radius: 7px;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.p-tile--on {
+  color: #1A1206;
+  background: var(--tone, var(--p-run));
+  box-shadow:
+    0 0 14px color-mix(in srgb, var(--tone, var(--p-run)) 60%, transparent),
+    0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
+
+.pan--console .p-tile--on { color: #05070B; }
+
+/* An annunciator that has just come true flashes, then goes steady — the way a real one does. */
+.p-tile--new { animation: annflash 0.42s steps(1) 3; }
+
+@keyframes annflash {
+  50% { opacity: 0.35; }
+}
+
+/* ── Instrument row ── */
+.p-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+
+.p-inst {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--p-well);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+  padding: 7px 8px 5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6) inset, 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* The twin dials are the signature instrument and the widest reading on the panel. */
+.p-inst--rate { flex: 2.2 1 0; }
+/* The progress movement is small next to the dials, so it centres in its well rather than sitting
+   at the top of it with a hand's width of empty well underneath. */
+.p-inst--prog {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* The third column: the step counter over the four digital counters. The counter mechanism is small
+   and the well beside a dial is tall, so on its own it was a third of the panel doing nothing —
+   the counters that used to have their own full-width row now live in that space, which both fills
+   it and removes a row from the panel. */
+.p-stack {
+  flex: 1.35 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Counter well: takes the height the four counters below it do not need, with its mechanism centred
+   in it. The counters keep their natural height and sit at the foot of the column — a 1fr row that
+   stretches to fill leaves a gap down the middle of the pairs. */
+.p-inst--steps {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.pan--console .p-inst {
+  border-radius: 10px;
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+/* A legend lights only while its instrument is reading something real — the same rule the rack
+   card's wells follow. Lit means live, not merely present. */
+.p-cap {
+  display: block;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+  margin-top: 3px;
+}
+
+.p-inst--live .p-cap {
+  color: var(--lit);
+  text-shadow: 0 0 8px currentColor;
+}
+
+svg.p-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* INSTRUMENTS DO NOT GROW WITHOUT LIMIT. An SVG at width:100% scales with the panel, so a single
+   module in a wide window drew a dial a foot across and a recorder 150px tall — the panel got taller
+   the more room it was given, which is the opposite of what the SIZE control is for. Real gear comes
+   in fixed sizes; past these caps the instrument centres in its well instead. */
+.p-inst--rate svg.p-svg { max-height: 152px; }
+.p-inst--prog svg.p-svg { max-height: 92px; }
+
+/* ── Meter faces ── */
+.m-face { fill: var(--p-glass); stroke: rgba(0, 0, 0, 0.5); }
+.pan--console .m-face { fill: none; stroke: none; }
+.m-tick { stroke: color-mix(in srgb, var(--p-glass-ink) 45%, transparent); stroke-width: 1; }
+.m-tick--maj { stroke: var(--p-glass-ink); stroke-width: 1.6; }
+.m-lab { fill: var(--p-glass-ink); font-family: 'Share Tech Mono', monospace; font-size: 7.5px; text-anchor: middle; }
+.m-needle { stroke: #C2352A; stroke-width: 2; stroke-linecap: round; }
+.m-hub { fill: #8E2B22; }
+
+/* The console needle is a dash-clipped beam: the dash figures are tied to the needle LENGTH, so
+   changing a movement's radius without retuning them leaves a stub or nothing at all. */
+.pan--console .m-needle {
+  stroke: #F2F7FF;
+  stroke-width: 1.3;
+  stroke-linecap: butt;
+  stroke-dasharray: 0 26 20;
+  filter: drop-shadow(0 0 4px var(--p-run));
+}
+
+.pan--console .m-hub { display: none; }
+
+.m-arc-track { fill: none; stroke: rgba(226, 236, 255, 0.1); stroke-width: 3; display: none; }
+.m-arc {
+  fill: none;
+  stroke: var(--p-run);
+  stroke-width: 3;
+  stroke-linecap: round;
+  display: none;
+  filter: drop-shadow(0 0 5px rgba(127, 168, 255, 0.8));
+}
+
+.pan--console .m-arc-track,
+.pan--console .m-arc { display: block; }
+
+.m-nosig {
+  fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 7px;
+  letter-spacing: 0.2em;
+  text-anchor: middle;
+  visibility: hidden;
+}
+
+/* A resting needle must never look like a measurement: the legend says so in words and the pointer
+   loses its light. */
+.p-inst--nosig .m-nosig { visibility: visible; }
+.p-inst--nosig .m-needle { stroke: color-mix(in srgb, var(--p-glass-ink) 40%, transparent); filter: none; }
+.p-inst--nosig .m-arc { display: none; }
+
+/* ── Twin rate dials ── */
+.t-face { fill: var(--p-glass); stroke: rgba(0, 0, 0, 0.5); }
+.pan--console .t-face { fill: none; stroke: none; }
+.t-needle { stroke: #C2352A; stroke-width: 2; stroke-linecap: round; }
+
+.pan--console .t-needle {
+  stroke: #F2F7FF;
+  stroke-width: 1.4;
+  stroke-linecap: butt;
+  stroke-dasharray: 0 26 28;
+  filter: drop-shadow(0 0 4px var(--p-run));
+}
+
+.t-hub { fill: #4A1A14; }
+.pan--console .t-hub { display: none; }
+
+.t-arc-track { fill: none; stroke: rgba(226, 236, 255, 0.1); stroke-width: 2.5; display: none; }
+.t-arc {
+  fill: none;
+  stroke: var(--p-run);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  display: none;
+  filter: drop-shadow(0 0 5px rgba(127, 168, 255, 0.8));
+}
+
+.pan--console .t-arc-track { display: block; }
+.pan--console .t-half--live .t-arc { display: block; }
+
+.t-cap {
+  fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-anchor: middle;
+}
+
+.t-cap--end {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.t-half--live .t-cap { fill: #C2352A; }
+.pan--console .t-half--live .t-cap { fill: var(--p-run); }
+
+/* A resting needle is still a needle — a car cluster never hides one — but it must not compete
+   with the live half, so it drops to a whisper rather than disappearing. */
+.t-half--rest .t-needle { opacity: 0.16; filter: none; }
+
+/* The figure between the movements: the one thing a pair of needles cannot tell you. */
+.t-read { fill: var(--lit); font-family: 'Share Tech Mono', monospace; font-size: 19px; text-anchor: middle; }
+.t-read-unit {
+  fill: color-mix(in srgb, var(--lit) 75%, transparent);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-anchor: middle;
+}
+
+.p-inst--nosig .t-read { fill: var(--p-dim); }
+.p-inst--nosig .t-read-unit { fill: transparent; }
+
+/* ── Step counter ──
+   Fixed-width mechanisms with leading zeros: a counter has a wheel in every position and is always
+   showing something. No step data blanks the mechanism and prints the words instead — zeros are for
+   positions a real number does not reach, never for "we do not know". */
+.p-stepwin {
+  position: relative;
+  --cw: 34px;
+  --ch: 54px;
+  --cf: 31px;
+  padding: 6px 0 2px;
+}
+
+.p-rack { display: flex; justify-content: center; gap: 4px; }
+
+.p-stepna {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 26px;
+  color: var(--p-dim);
+}
+
+.p-stepwin--na .p-rack { visibility: hidden; }
+.p-stepwin--na .p-stepna { display: flex; }
+
+/* Split-flap (control room) */
+.fl { position: relative; width: var(--cw); height: var(--ch); perspective: 200px; }
+
+.fl-half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  background: linear-gradient(180deg, #22262A, #1A1D20);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.7);
+}
+
+.fl-half--top { top: 0; border-radius: 4px 4px 0 0; }
+.fl-half--bot { bottom: 0; border-radius: 0 0 4px 4px; background: linear-gradient(180deg, #191C1F, #24282C); }
+
+.fl-txt {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: var(--ch);
+  line-height: var(--ch);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--cf);
+  color: #EDE7D8;
+  text-align: center;
+}
+
+.fl-half--top .fl-txt { top: 0; }
+.fl-half--bot .fl-txt { bottom: 0; }
+
+.fl::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 6;
+}
+
+.fl-leaf { position: absolute; left: 0; right: 0; height: 50%; overflow: hidden; z-index: 5; backface-visibility: hidden; }
+.fl-leaf--down { top: 0; transform-origin: bottom center; animation: flapdown 150ms ease-in forwards; }
+.fl-leaf--up { bottom: 0; transform-origin: top center; animation: flapup 170ms 140ms cubic-bezier(0.3, 1.5, 0.5, 1) backwards; }
+
+@keyframes flapdown {
+  from { transform: rotateX(0deg); }
+  to { transform: rotateX(-90deg); }
+}
+
+@keyframes flapup {
+  from { transform: rotateX(90deg); }
+  to { transform: rotateX(0deg); }
+}
+
+/* Nixie (console) */
+.nx {
+  position: relative;
+  width: var(--cw);
+  height: var(--ch);
+  border-radius: 8px 8px 5px 5px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 8%, rgba(255, 255, 255, 0.12), transparent 70%),
+    linear-gradient(105deg, rgba(255, 255, 255, 0.07) 0 12%, rgba(255, 255, 255, 0.02) 26%, rgba(0, 0, 0, 0.35) 60%, rgba(255, 255, 255, 0.04) 92%),
+    radial-gradient(ellipse at 50% 120%, rgba(127, 168, 255, 0.16), transparent 62%),
+    #070A10;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+/* The mesh anode, in front of the cathode stack. */
+.nx::before {
+  content: '';
+  position: absolute;
+  inset: 5px 4px 8px;
+  z-index: 3;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px);
+}
+
+.nx::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  z-index: 4;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.5));
+}
+
+/* All ten cathodes are drawn, the unlit ones faintly visible at slightly different depths. That
+   ghosting is exactly why a nixie cannot be done with a font. */
+.nx-d {
+  position: absolute;
+  inset: 0 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--cf);
+  line-height: 1;
+  color: rgba(160, 190, 255, 0.055);
+  transition: color 260ms ease, text-shadow 260ms ease;
+}
+
+.nx-d--on {
+  color: #CFE0FF;
+  text-shadow: 0 0 6px #7FA8FF, 0 0 16px rgba(127, 168, 255, 0.7), 0 0 30px rgba(127, 168, 255, 0.4);
+}
+
+.nx-d--strike { animation: nxstrike 420ms ease-out; }
+
+@keyframes nxstrike {
+  0% { opacity: 0.25; }
+  30% { opacity: 1; filter: brightness(1.5); }
+  100% { opacity: 1; filter: brightness(1); }
+}
+
+/* ── Digital counter windows ──
+   Two by two inside the third column, filling the height the step counter does not need. */
+.p-counts {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+}
+
+.p-count-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.p-counts .p-cap { margin-top: 2px; }
+
+.p-count {
+  background: #0B0D0F;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 2px;
+  padding: 4px 7px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7) inset;
+  text-align: center;
+}
+
+.pan--console .p-count {
+  background: rgba(0, 0, 0, 0.32);
+  border-radius: 8px;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.p-count-val {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 15px;
+  color: var(--lit);
+  text-shadow: 0 0 7px color-mix(in srgb, var(--lit) 55%, transparent);
+}
+
+/* Dim, not hidden: a counter with nothing to show still has a window. */
+.p-count-val--dim { color: var(--p-dim); text-shadow: none; }
+
+/* A build number is a fact about the box, not a reading off the job — plate ink, no glow, so it
+   never competes with the instruments for attention. Slightly smaller, because these are the
+   longest strings on the panel ("2.13.0", "581.15"). */
+.p-count-val--static {
+  color: var(--p-ink);
+  font-size: 13px;
+  text-shadow: none;
+}
+
+/* An author `display` beats the UA stylesheet's [hidden] rule regardless of specificity — the exact
+   trap that left a permanent "BATCH ETA --" on every rack card (main.css:844). A window with nothing
+   knowable behind it must actually disappear. */
+.p-count-wrap[hidden],
+.p-tell-item[hidden] { display: none; }
+
+/* ── Rate recorder ── */
+.p-chart {
+  background: var(--p-well);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+  padding: 6px 8px 4px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6) inset;
+}
+
+.pan--console .p-chart {
+  border-radius: 10px;
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+}
+
+/* The labels are HTML over the plot, not SVG text: the chart is drawn with
+   preserveAspectRatio="none" so it can stretch to the panel width, and any <text> inside it would
+   stretch with it. */
+.p-chart-plot { position: relative; }
+
+/* A strip, not a panel: the trace is drawn with preserveAspectRatio="none", so it fills whatever
+   height it is given without letterboxing — which means the height is a design choice rather than a
+   consequence of the panel's width. 60s of a mostly-steady rate needs a strip. */
+.p-chart svg.p-svg { height: 58px; }
+
+.c-lab {
+  position: absolute;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: var(--p-dim);
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--p-well) 78%, transparent);
+  padding-right: 4px;
+}
+
+/* Which end is fast. Without these two the trace is a shape, not a reading. */
+.c-lab--fast { top: -1px; left: 0; }
+.c-lab--slow { bottom: -1px; left: 0; }
+
+/* The 1:1 crossover, where the printed unit flips. Drawn only on a face that spans it. */
+.c-mid {
+  stroke: color-mix(in srgb, var(--p-dim) 55%, transparent);
+  stroke-width: 0.8;
+  stroke-dasharray: 3 3;
+}
+
+.c-grid { stroke: color-mix(in srgb, var(--p-dim) 30%, transparent); stroke-width: 0.8; }
+.c-line {
+  fill: none;
+  stroke: var(--lit);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--lit) 60%, transparent));
+}
+.c-fill { fill: color-mix(in srgb, var(--lit) 12%, transparent); }
+.c-pen { fill: #F2F7FF; }
+
+/* ── LED bulb banks ── */
+.p-leds { margin-bottom: 10px; }
+
+.p-led-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 2px;
+}
+
+/* The workflow bank exists only when the relay reported an item total, so its absence is a fact
+   about the job rather than a missing feature. */
+.p-led-row--off { display: none; }
+
+.p-led-cap {
+  flex: 0 0 74px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+}
+
+.p-led-row--live .p-led-cap { color: var(--lit); }
+
+.p-bulbs { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; }
+
+.p-bulb {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 1 / 1;
+  max-width: 16px;
+  transition: background 260ms ease, box-shadow 260ms ease;
+}
+
+/* P1 · 1960s indicator lamps — a tinted glass dome in a chromed collar, in a punched strip. Cold,
+   it is still visibly amber glass rather than a black hole: that is what a real panel looks like
+   with the power off. */
+.pan--room .p-bulbs {
+  padding: 4px 6px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #1A1D1F, #23272A);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.75), 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.pan--room .p-bulb {
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 28%, rgba(255, 236, 196, 0.16), rgba(150, 110, 55, 0.1) 52%, rgba(20, 14, 6, 0.85) 100%);
+  box-shadow:
+    0 0 0 1.5px #575D63,
+    0 0 0 2.5px #24282B,
+    inset 0 -1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Specular pip on the glass — the giveaway that it is a dome and not a disc. */
+.pan--room .p-bulb::before {
+  content: '';
+  position: absolute;
+  left: 22%;
+  top: 16%;
+  width: 30%;
+  height: 24%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  filter: blur(0.4px);
+}
+
+.pan--room .p-bulb--on {
+  background: radial-gradient(circle at 38% 32%, #FFF8E2 10%, #FFD277 30%, var(--lit) 58%, #7A3F03 100%);
+  box-shadow:
+    0 0 0 1.5px #6B7176,
+    0 0 0 2.5px #24282B,
+    0 0 10px color-mix(in srgb, var(--lit) 85%, transparent),
+    0 0 22px color-mix(in srgb, var(--lit) 45%, transparent);
+  animation: mains 3.1s ease-in-out infinite;
+}
+
+.pan--room .p-bulb--on::before { background: rgba(255, 255, 255, 0.6); }
+
+/* Filament, only visible when hot. */
+.pan--room .p-bulb--on::after {
+  content: '';
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  top: 52%;
+  height: 1.5px;
+  border-radius: 1px;
+  background: #FFF6DC;
+  box-shadow: 0 0 4px #FFE9B0;
+}
+
+/* Uneven mains hum: neighbouring bulbs are deliberately out of phase, or a lit bank reads as one
+   flat graphic. */
+@keyframes mains {
+  0%, 100% { filter: brightness(1); }
+  44% { filter: brightness(0.94); }
+  72% { filter: brightness(1.03); }
+}
+
+.pan--room .p-bulb:nth-child(3n) { animation-delay: -1.1s; }
+.pan--room .p-bulb:nth-child(3n + 1) { animation-delay: -2.3s; }
+
+/* Filament strike: an incandescent takes a moment to come up, and overshoots on the way. */
+.pan--room .p-bulb--strike { animation: strike 420ms ease-out; }
+
+@keyframes strike {
+  0% { filter: brightness(0.35); }
+  22% { filter: brightness(2.5); }
+  55% { filter: brightness(1.4); }
+  100% { filter: brightness(1); }
+}
+
+/* P2 · modern emitters — surface-mount, not screwed in: an even face, a hard bright core, a clean
+   halo. No filament, no flicker, no warm-up. */
+.pan--console .p-bulb {
+  border-radius: 4px;
+  max-width: 15px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.pan--console .p-bulb--on {
+  background: radial-gradient(circle at 50% 45%, #FFFFFF 14%, var(--lit) 52%, color-mix(in srgb, var(--lit) 55%, #000) 100%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lit) 60%, transparent),
+    0 0 8px color-mix(in srgb, var(--lit) 80%, transparent),
+    0 0 20px color-mix(in srgb, var(--lit) 40%, transparent);
+}
+
+.pan--console .p-bulb--strike { animation: ledsnap 160ms ease-out; }
+
+@keyframes ledsnap {
+  0% { filter: brightness(1.9); }
+  100% { filter: brightness(1); }
+}
+
+.p-led-txt {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10.5px;
+  color: var(--p-dim);
+  flex: none;
+  min-width: 96px;
+  text-align: right;
+}
+
+.p-led-row--live .p-led-txt { color: var(--lit); }
+
+/* ── Tell-tale line ──
+   The live job figures in one strip: label in silkscreen, value in the mono face, lit while the
+   figure is real. It costs ~18px where the four windows cost 83, which is the whole reason the
+   build info could take the windows without the panel losing its ETA. */
+.p-tell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 2px 2px 7px;
+}
+
+.p-tell-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.p-tell-lab {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+}
+
+.p-tell-val {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11.5px;
+  color: var(--lit);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--lit) 45%, transparent);
+}
+
+.p-tell-val--dim { color: var(--p-dim); text-shadow: none; }
+
+/* ── Identity plate ── */
+/* One row, four slots: the two long values (model, process) take the free width and the two short
+   ones size to their content. Two rows here was another 22px of panel spent on a line break. */
+.p-plate {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) auto auto minmax(0, 1fr);
+  gap: 4px 14px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(0, 0, 0, 0.5);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.p-plate-row { min-width: 0; }
+
+/* An unknown identity field keeps its slot on the plate but prints nothing — the grid is engraved,
+   the values are not. */
+.p-plate-row--off { visibility: hidden; }
+
+.p-plate-lab {
+  display: block;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+}
+
+.p-plate-val {
+  display: block;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11.5px;
+  color: var(--p-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Blanking panel ──
+   A unit that is NOT THERE keeps its designation and its annunciator bank and drops the
+   instruments: OFFLINE is lit, and that IS the reading. An online host with nothing running keeps
+   everything, because a reachable instance is the thing being waited on. */
+.pan--blank .p-row,
+.pan--blank .p-chart,
+.pan--blank .p-counts,
+.pan--blank .p-tell,
+.pan--blank .p-leds,
+.pan--blank .p-plate { display: none; }
+
+.pan--blank .p-ann { margin-bottom: 2px; }
+
+/* ── Narrow panel ──
+   Below ~470px of panel the three instruments cannot stay abreast: the twin dials go full width and
+   the progress movement and the step counter share the row under them. The bulb banks stack their
+   caption above the sockets so a 74px label does not eat the strip. */
+/* Two rows of four annunciators once eight across would be unreadable. This is a wider breakpoint
+   than the layout one below: the tiles run out of room for their words long before the instruments
+   run out of room to sit abreast. */
+@container (max-width: 620px) {
+  .p-ann { grid-template-columns: repeat(4, 1fr); }
+}
+
+@container (max-width: 470px) {
+  .p-row { flex-wrap: wrap; }
+  .p-inst--rate { flex: 1 0 100%; }
+  .p-stack { flex: 1 1 0; }
+  .p-counts { grid-template-columns: repeat(2, 1fr); }
+  .p-plate { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .p-plate-row:last-child { grid-column: 1 / -1; }
+  .p-led-row { flex-wrap: wrap; }
+  .p-led-cap { flex: 1 1 auto; }
+  .p-led-txt { min-width: 0; }
+  .p-bulbs { flex: 1 0 100%; order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .p-tile--new,
+  .p-bulb--strike,
+  .pan--room .p-bulb--on,
+  .fl-leaf--down,
+  .fl-leaf--up,
+  .nx-d--strike { animation: none; }
+}
