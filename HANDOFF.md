@@ -468,3 +468,5 @@ interpret the rate recorder. Both addressed, verified in the mock and the real a
 - Linux AppImage + deb built in WSL (~/cw-build) and copied into dist/.
 - The mock-*.html files are now COMMITTED as the design record / judging surface. They are excluded
   from the packaged build by the existing "!renderer/mock-*.html" glob.
+- Released: https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.6 with all three
+  installers attached (exe 78.6MB, AppImage 107.6MB, deb 74.5MB). Commit 3d99385 pushed to main.
