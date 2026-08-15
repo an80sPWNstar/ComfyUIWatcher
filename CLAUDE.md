@@ -96,6 +96,38 @@ Adding another trainer (Kohya, Musubi, OneTrainer) = one new file + one line in 
 that the two already on this machine are harder targets than ai-toolkit: Musubi's SECourses GUI
 is Gradio with no job API, so it would need log tailing.
 
+### Video is detected, not configured (added 2026-08-14)
+`detectMedia(graph)` in `comfyui-client.js` decides whether the running job is making video or
+stills, and the card prints the matching face. This is a *scale* decision, nothing else: a video
+sampler and an image sampler are two orders of magnitude apart, so one face cannot read both, and
+the split face was calling a perfectly healthy MiniMax-H3 run SLOW.
+
+**Three signals, structural first, filename last** — the answer is `'video' | 'image' | null`, and
+`null` (no graph yet) is never turned into a guess:
+1. a node class that only exists in a video pipeline (`VIDEO_CLASS_RE` — video, img2vid, vid2vid,
+   animatediff, svd, framepack, wan*);
+2. any node asking for more than one frame, under any of the five names the packs use for it
+   (`FRAME_KEYS`: length, num_frames, video_frames, frame_count, batch_size_frames);
+3. a model filename from a known video family (`VIDEO_MODEL_RE`), only if 1 and 2 found nothing.
+
+Verified against Bryan's real H3 graph pulled from `/history`: matched on
+`MiniMaxH3ReferenceToVideo` at signal 1. **That graph also proves why the frame count cannot be the
+detector**: its `width`/`height`/`length` are all wired links (`["115",0]`), not numbers, so
+`describeLatent` reports nothing and the SIZE/FRAMES rows stay hidden — the honest answer, since the
+real values only exist once the graph runs.
+
+`describeLatent` now takes a second pass over `VIDEO_CLASS_RE` nodes when no latent node has the
+numbers, because Wan/HunyuanVideo image-to-video builds the latent inside the conditioning node.
+**The two regexes are deliberately the same constant**: when they drifted, an SVD graph was detected
+as video with no size or frames to show for it (caught by a test, not by eye).
+
+**The face follows the JOB, and unknown media KEEPS THE CURRENT FACE** (`faceFor` in `job-card.js`,
+mirrored in `updateReactorPanel`). The gap between two video jobs is not evidence that the next one
+is stills, and a face that flips on every gap is worse than one that is a job behind. Switching is a
+**reprint** (`meter.setFace` → `refreshFace`), never a rebuild — the needle swings to its new
+position with its own ballistics instead of dropping to the stop mid-job, same rule as skins and
+dial ranges.
+
 ### AI-Toolkit collector (`aitoolkit-client.js`)
 Pure REST, no WebSocket — ai-toolkit keeps every job's live step count in its own SQLite row and
 its Next.js UI (default port **8675**) serves it. Endpoints: `/api/jobs?only_active=true&
@@ -225,11 +257,27 @@ read as a spaceship HUD). The old arc gauge is gone too.
   ivory face, log scale across 96°. **Log, not linear** — this widget watches both a 5 it/s SDXL
   image and a 0.07 it/s H3 video sampler, and a linear face pins the needle for whichever it
   wasn't scaled for. **No red zone**: on real gear that means overload, and a slow sampler is not
-  a fault. There are two faces, chosen by card kind:
+  a fault. There are **three faces, and the card is not the one that decides between the first two**
+  — see "Video is detected, not configured" below:
   - `sampling` — split at 1:1 (below), **end stops selectable in the hosts panel → Dials: 5 / 20 /
-    100, default 20** (changed from a fixed ±100 on 2026-08-13 — "100 is too far in both
-    directions"; everything Bryan generates sat within a few degrees of centre). The wide face is
-    kept for a genuinely fast run rather than deleted.
+    60 / 100, default 60** (selectable since 2026-08-13, replacing a fixed ±100 — "100 is too far in
+    both directions"; everything Bryan generates sat within a few degrees of centre). The wide face
+    is kept for a genuinely fast run rather than deleted.
+  - **A sampling range is keyed by its SLOW end and carries its own fast end** — `SAMPLING_FAST_END`
+    in `widgets/lcd.js`, absent = symmetric. **The 60 face is 60 s/it … 5 it/s, not ±60**, and it is
+    the default as of 2026-08-14. Symmetry was an assumption, never a requirement, and it is what put
+    a 15.7 s/it MiniMax-H3 run four degrees off the slow stop on the 20 face while half the arc
+    covered speeds no video sampler reaches ("14 s/it is actually pretty fast for minimax h3"). On
+    the 60 face that same reading sits about a quarter up the arc, a 42 s/it 720p job is still ON the
+    face instead of pegged, and an SDXL run at 4 it/s still reads. Verified live against New Main at
+    15.75 s/it. The settings dropdown prints each face's own two ends (`dialRangeLabel`) rather than
+    one number twice.
+  - `video` — **60…1 s/it, one unit, no split** (added 2026-08-14), ranges 30 / 60 / 120, default 60.
+    Same construction as the training face and for the same reason: nothing on this rack generates
+    video above 1 it/s. **The split face's SLOW/FAST words were the actual complaint** — "15.75 s/it
+    is not slow for video!!!!" — and no absolute scale is entitled to that judgement, because
+    whether 15 s/it is good depends entirely on the model. A single-unit face has no such words, and
+    it puts that reading at 43% of the arc instead of 4%.
   - `training` — **60…1 s/it, one unit, no split** (added 2026-08-13). Scaled from Bryan's six
     recorded ai-toolkit runs: 2.17, 3.66, 4.41, 5.09, 6.08 and 30.07 s/it. **Nothing he has ever
     trained ran faster than 1 it/s**, so on the sampling face all six pile up within a few degrees
@@ -242,6 +290,12 @@ read as a spaceship HUD). The old arc gauge is gone too.
     `widgets/lcd.js`, keyed by end stop; training offers 10 / 30 / 60 s/it, default 60). Which marks
     carry a label is the difference between a readable dial and a wall of numbers, and every label
     has to stay a whole number — see the four rejected schemes below.
+  - `renderer/mock-sample-dial.html` is the judging surface for a sampling scale: candidate faces
+    side by side, each carrying four real workloads at their real speeds, in either widget family.
+    It works because **both widgets read their face through `window.Widgets.faceSpec`** — the rack
+    meter was calling this file's local `faceSpec` directly, so a mock could patch the panel and not
+    the card. One seam, so a candidate scale is a table in the mock, not a second meter
+    implementation (which is what `mock-train-dial.html` had to do).
   - **A range change REPRINTS the face in place** (`meter.refreshFace()` → `Widgets.refreshCardFace`
     → a `comfyuiwatcher:dial-range` event that `renderer.js` listens for). The graduations live in
     their own `<g class="meter-grads">` inserted before the needle so paint order survives a

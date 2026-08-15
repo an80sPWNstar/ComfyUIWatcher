@@ -139,13 +139,31 @@ const SWEEP_DEG = 96;
 // Each range is written out by hand, not generated: which marks carry a label is the difference
 // between a readable dial and a wall of numbers, and every label has to be a whole number (see the
 // rejected schemes in CLAUDE.md). Marks are ALWAYS in it/s, whatever the labels print.
-const SAMPLING_RANGES = [5, 20, 100];
+//
+// A sampling range is keyed by its SLOW end and carries its own fast end, because the two do not
+// have to match: the 60 face stops at 5 it/s, not 60. Symmetry was never a requirement, it was an
+// assumption — and it is what put a 15.7 s/it MiniMax-H3 run a hair off the slow stop on the 20
+// face while half the arc covered speeds no video sampler reaches (Bryan, 2026-08-14: "14 s/it is
+// actually pretty fast for minimax h3"). 60 s/it … 5 it/s is the default now: video work sits about
+// a quarter up the arc, a 42 s/it 720p job is still ON the face rather than pegged, and an SDXL run
+// at 4 it/s still reads.
+const SAMPLING_RANGES = [5, 20, 60, 100];
 const TRAINING_RANGES = [10, 30, 60];
-const DEFAULT_SAMPLING = 20;
+// Video: one unit, no fast half, same shape as the training face. NOTHING that generates video on
+// this rack runs above 1 it/s, and the split face's SLOW/FAST words are a judgement no absolute
+// scale is entitled to make about a video sampler — 15.75 s/it is a healthy MiniMax-H3 run, and the
+// face printed SLOW next to it. A single-unit face has no such words at all, and 60…1 s/it puts
+// that reading at 43% of the arc instead of 4%.
+const VIDEO_RANGES = [30, 60, 120];
+const DEFAULT_SAMPLING = 60;
 const DEFAULT_TRAINING = 60;
+const DEFAULT_VIDEO = 60;
+// Fast end per sampling range, in it/s. Absent = symmetric with the slow end.
+const SAMPLING_FAST_END = { 60: 5 };
 const DIAL_KEYS = {
   sampling: 'comfyuiwatcher-dial-sampling',
   training: 'comfyuiwatcher-dial-training',
+  video: 'comfyuiwatcher-dial-video',
 };
 
 // Sampling: symmetric about the 1:1 centre, left half labelled in s/it (the reciprocal), right half
@@ -164,6 +182,15 @@ const SAMPLING_MARKS = {
     { v: 1, label: '1', centre: true },
     { v: 1.5 }, { v: 2, label: '2' }, { v: 3 }, { v: 5, label: '5' },
     { v: 7 }, { v: 10, label: '10' }, { v: 15 }, { v: 20, label: '20' },
+  ],
+  // The video face, and the default. Asymmetric: the crossover sits about three quarters along, so
+  // the s/it half gets the room it needs and the fast half keeps just enough scale for an image job.
+  60: [
+    { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30, label: '30' },
+    { v: 1 / 20, label: '20' }, { v: 1 / 15 }, { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+    { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1', centre: true },
+    { v: 1.5 }, { v: 2, label: '2' }, { v: 3 }, { v: 5, label: '5' },
   ],
   100: [
     { v: 0.01, label: '100' }, { v: 0.02 }, { v: 0.05 },
@@ -197,35 +224,88 @@ const TRAINING_MARKS = {
   ],
 };
 
+const RANGES = { sampling: SAMPLING_RANGES, training: TRAINING_RANGES, video: VIDEO_RANGES };
+const DEFAULT_RANGE = { sampling: DEFAULT_SAMPLING, training: DEFAULT_TRAINING, video: DEFAULT_VIDEO };
+
+/** An unknown face name reads as the sampling face — the same fallback hosts.js gives an odd kind. */
+function faceKey(kind) {
+  return RANGES[kind] ? kind : 'sampling';
+}
+
+// Video: same construction as the training face — labels DESCEND left to right because the scale
+// underneath is still it/s, so needle-right is faster on every module in the rack. 60 is the default
+// because Bryan's video work runs roughly 3-45 s/it (MiniMax-H3 at 832x480 sits near 15); 120 is for
+// 720p work, 30 for a fast short clip.
+const VIDEO_MARKS = {
+  30: [
+    { v: 1 / 30, label: '30' }, { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+    { v: 1 / 10, label: '10' }, { v: 1 / 7 }, { v: 1 / 5, label: '5' },
+    { v: 1 / 4 }, { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1' },
+  ],
+  60: [
+    { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30, label: '30' },
+    { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+    { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+    { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 },
+    { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+    { v: 1, label: '1' },
+  ],
+  120: [
+    { v: 1 / 120, label: '120' }, { v: 1 / 80 }, { v: 1 / 60, label: '60' }, { v: 1 / 40 },
+    { v: 1 / 30, label: '30' }, { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+    { v: 1 / 10, label: '10' }, { v: 1 / 7 }, { v: 1 / 5, label: '5' },
+    { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1, label: '1' },
+  ],
+};
+
 /** The range a face is currently set to, from localStorage, falling back to the default. */
 function dialRange(kind) {
-  const allowed = kind === 'training' ? TRAINING_RANGES : SAMPLING_RANGES;
-  const fallback = kind === 'training' ? DEFAULT_TRAINING : DEFAULT_SAMPLING;
-  const saved = Number(localStorage.getItem(DIAL_KEYS[kind === 'training' ? 'training' : 'sampling']));
-  return allowed.includes(saved) ? saved : fallback;
+  const key = faceKey(kind);
+  const saved = Number(localStorage.getItem(DIAL_KEYS[key]));
+  return RANGES[key].includes(saved) ? saved : DEFAULT_RANGE[key];
 }
 
 function setDialRange(kind, range) {
-  localStorage.setItem(DIAL_KEYS[kind === 'training' ? 'training' : 'sampling'], String(range));
+  localStorage.setItem(DIAL_KEYS[faceKey(kind)], String(range));
 }
 
 /** Build the face spec for a kind at its current range. */
 function faceSpec(kind) {
-  const range = dialRange(kind);
-  if (kind === 'training') {
+  const key = faceKey(kind);
+  const range = dialRange(key);
+  if (key === 'training' || key === 'video') {
+    const marks = key === 'video' ? VIDEO_MARKS : TRAINING_MARKS;
     return {
       minLog: -Math.log10(range),
       maxLog: 0,
-      units: { slow: 'sec/iter', single: true },
-      marks: TRAINING_MARKS[range] ?? TRAINING_MARKS[DEFAULT_TRAINING],
+      // The video face says s/it, the same words the RATE legend under the readout prints for the
+      // same number. "sec/iter" is the trainer's own language and belongs to that face only.
+      units: { slow: key === 'video' ? 's/it' : 'sec/iter', single: true },
+      marks: marks[range] ?? marks[DEFAULT_RANGE[key]],
     };
   }
   return {
     minLog: -Math.log10(range),
-    maxLog: Math.log10(range),
+    maxLog: Math.log10(samplingFastEnd(range)),
     units: { slow: 's/it', fast: 'it/s' },
     marks: SAMPLING_MARKS[range] ?? SAMPLING_MARKS[DEFAULT_SAMPLING],
   };
+}
+
+/** it/s at the fast stop of a sampling range. Symmetric unless the range says otherwise. */
+function samplingFastEnd(range) {
+  return SAMPLING_FAST_END[range] ?? range;
+}
+
+/**
+ * What a range reads as on the dial, for the settings dropdown. The label is built from the face's
+ * own two ends rather than assuming both are the same number — that assumption is exactly what the
+ * 60 face breaks.
+ */
+function dialRangeLabel(kind, range) {
+  if (faceKey(kind) !== 'sampling') return `${range} s/it`;
+  return `${range} s/it  ―  ${samplingFastEnd(range)} it/s`;
 }
 
 const FACES = {
@@ -308,8 +388,14 @@ function wakeNeedles() {
 
 /** @param {'sampling'|'training'} [faceName] which graduation to print. */
 function createRateMeter(faceName) {
-  const kind = faceName === 'training' ? 'training' : 'sampling';
-  let face = faceSpec(kind);
+  // The face can change under a running card: a host that was rendering stills starts a video job,
+  // and the scale that fits one does not fit the other. It is a REPRINT, never a rebuild — see
+  // setFace below.
+  let kind = faceKey(faceName);
+  // Read through the export, exactly as reactor-panel.js does, so there is ONE seam where the face
+  // comes from: a mock comparing candidate scales patches window.Widgets.faceSpec and both widgets
+  // print the candidate. Behaviour is identical — the export IS this file's faceSpec.
+  let face = window.Widgets.faceSpec(kind);
   const wrap = document.createElement('div');
   wrap.className = `meter meter--${kind}`;
 
@@ -471,9 +557,23 @@ function createRateMeter(faceName) {
      * was already showing — the reading has not changed, only the scale it is read against.
      */
     refreshFace() {
-      face = faceSpec(kind);
+      face = window.Widgets.faceSpec(kind);
       drawFace();
       this.setRate(lastRate);
+    },
+    /**
+     * Print a different face on the same instrument — 'sampling' → 'video' when the job on this host
+     * turns out to be making video. Reprinting keeps the needle where it is and lets it swing to the
+     * new position with its own ballistics; rebuilding the card would drop it to the stop mid-job.
+     * A no-op when the face is already the one asked for, so this is safe to call on every snapshot.
+     */
+    setFace(name) {
+      const next = faceKey(name);
+      if (next === kind) return;
+      kind = next;
+      wrap.classList.remove('meter--sampling', 'meter--training', 'meter--video');
+      wrap.classList.add(`meter--${kind}`);
+      this.refreshFace();
     },
     /**
      * Backlight, independent of the reading. A real instrument's lamp is on because the rack is
@@ -550,7 +650,9 @@ window.Widgets.createNeedle = createNeedle;
 window.Widgets.faceSpec = faceSpec;
 // Dial ranges are display settings, like the skin: the settings panel writes them, renderer.js
 // tells the cards to reprint. Exposed here because the faces live here.
-window.Widgets.dialRanges = { sampling: SAMPLING_RANGES, training: TRAINING_RANGES };
+window.Widgets.dialRanges = { sampling: SAMPLING_RANGES, training: TRAINING_RANGES, video: VIDEO_RANGES };
 window.Widgets.dialRange = dialRange;
+// The dropdown prints what each face actually reads — the ends are no longer symmetric.
+window.Widgets.dialRangeLabel = dialRangeLabel;
 window.Widgets.setDialRange = setDialRange;
 window.Widgets.createRateMeter = createRateMeter;

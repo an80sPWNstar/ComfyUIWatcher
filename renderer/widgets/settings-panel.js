@@ -221,7 +221,7 @@
    * A change reprints the faces in place (Widgets.refreshCardFace via renderer.js) — no rebuild, so
    * a running job's readout and its needle are not interrupted.
    */
-  function dialRow(kind, label, hint, fmt) {
+  function dialRow(kind, label, hint) {
     const row = document.createElement('div');
     row.className = 'settings-dial-row';
 
@@ -234,7 +234,8 @@
     for (const range of window.Widgets.dialRanges[kind]) {
       const opt = document.createElement('option');
       opt.value = String(range);
-      opt.textContent = fmt(range);
+      // The face names its own ends — a sampling range is not symmetric any more.
+      opt.textContent = window.Widgets.dialRangeLabel(kind, range);
       select.appendChild(opt);
     }
     select.value = String(window.Widgets.dialRange(kind));
@@ -261,8 +262,12 @@
 
     wrap.append(
       title,
-      dialRow('sampling', 'Generation', 'end stops of the sampling dial', (r) => `${r} s/it  ―  ${r} it/s`),
-      dialRow('training', 'Training', 'slow end of the training dial', (r) => `${r} s/it`),
+      dialRow('sampling', 'Images', 'end stops of the image sampling dial'),
+      // A video job is detected from the running graph and printed on its own scale — a video
+      // sampler and an image sampler are two orders of magnitude apart, so one face cannot read
+      // both. This is the slow end of that face.
+      dialRow('video', 'Video', 'slow end of the video dial'),
+      dialRow('training', 'Training', 'slow end of the training dial'),
     );
     return wrap;
   }

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — sampling dial range options (live)</title>
+  <!-- REAL stylesheets, REAL widgets. The only thing faked is the data, and it MOVES.
+       Each section patches window.Widgets.faceSpec before building its widgets, so every card and
+       panel below is drawn by the shipping code at a different sampling scale — adopting a face is
+       then a table in lcd.js, nothing more.
+
+       Serve the repo (npx http-server . -p 8791); file:// will not load the fonts. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+  <link rel="stylesheet" href="../styles/reactor.css" />
+  <style>
+    .mock-note {
+      font-family: 'Rajdhani', sans-serif; font-size: 13px; letter-spacing: .06em;
+      color: #7d838a; padding: 10px 16px 0; line-height: 1.75;
+    }
+    .mock-note b { color: #c8a24a; font-weight: 600; }
+    .mock-head {
+      grid-column: 1 / -1; font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 600;
+      letter-spacing: .18em; text-transform: uppercase; color: #c8a24a;
+      border-bottom: 1px solid #33383e; padding: 16px 2px 5px; margin-bottom: 2px;
+    }
+    .mock-head span { color: #7d838a; font-weight: 500; letter-spacing: .09em; text-transform: none; }
+    .mock-head em { color: #9aa1a8; font-style: normal; letter-spacing: .09em; text-transform: none; }
+  </style>
+</head>
+<body class="layout-reactor size-normal">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">comfyuiWATCHER</span>
+      <div id="topbar-controls">
+        <select id="look-select" title="Look">
+          <option value="console" selected>Reactor Console</option>
+          <option value="room">Control Room</option>
+          <option value="rack">1U Rack</option>
+        </select>
+        <select id="size-select" title="Module size">
+          <option value="compact">Compact</option>
+          <option value="normal" selected>Normal</option>
+          <option value="large">Large</option>
+        </select>
+      </div>
+    </div>
+    <div class="mock-note">
+      Four candidate sampling faces, each carrying the same four real workloads &mdash;
+      <b>MiniMax-H3 15.7 s/it</b> &middot; <b>Wan 720p 42 s/it</b> &middot;
+      <b>Flux batch 3.5 s/it</b> &middot; <b>SDXL 4.2 it/s</b>. Rates jitter the way the collector
+      reports them. Watch where 15.7 s/it lands and what the face gives up at the other end.
+    </div>
+    <div id="cards"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script src="widgets/reactor-panel.js"></script>
+  <script>
+  (function () {
+    const cards = document.getElementById('cards');
+
+    // ── Candidate faces ──────────────────────────────────────────────────────────────────────
+    // Same shape faceSpec() returns. Marks are ALWAYS in it/s; the left half prints the reciprocal,
+    // which is what keeps every label a whole number.
+    const FACES = [
+      {
+        id: 'a',
+        title: 'Face A — ships today',
+        sub: '20 s/it … 20 it/s, symmetric about 1:1',
+        note: '15.7 s/it sits four degrees off the slow stop and 42 s/it is pegged — a video job reads as a fault.',
+        spec: {
+          minLog: -Math.log10(20), maxLog: Math.log10(20), units: { slow: 's/it', fast: 'it/s' },
+          marks: [
+            { v: 1 / 20, label: '20' }, { v: 1 / 15 }, { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+            { v: 1 / 5, label: '5' }, { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+            { v: 1, label: '1', centre: true },
+            { v: 1.5 }, { v: 2, label: '2' }, { v: 3 }, { v: 5, label: '5' },
+            { v: 7 }, { v: 10, label: '10' }, { v: 15 }, { v: 20, label: '20' },
+          ],
+        },
+      },
+      {
+        id: 'b',
+        title: 'Face B — asymmetric, 60 s/it … 5 it/s',
+        sub: 'still split at 1:1, but the crossover moves right — three quarters of the arc is s/it',
+        note: '15.7 s/it lands at 24% of the sweep, 42 s/it is on the face. SDXL at 4.2 it/s is near the fast stop but still readable.',
+        spec: {
+          minLog: -Math.log10(60), maxLog: Math.log10(5), units: { slow: 's/it', fast: 'it/s' },
+          marks: [
+            { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30, label: '30' },
+            { v: 1 / 20, label: '20' }, { v: 1 / 15 }, { v: 1 / 10, label: '10' }, { v: 1 / 7 },
+            { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+            { v: 1, label: '1', centre: true },
+            { v: 1.5 }, { v: 2, label: '2' }, { v: 3 }, { v: 5, label: '5' },
+          ],
+        },
+      },
+      {
+        id: 'c',
+        title: 'Face C — asymmetric wide, 100 s/it … 2 it/s',
+        sub: 'the whole face is video territory; the fast half is a stub',
+        note: '15.7 s/it sits at 35% and 42 s/it at 16% — but anything past 2 it/s pegs, so an SDXL module reads FAST and nothing else.',
+        spec: {
+          minLog: -2, maxLog: Math.log10(2), units: { slow: 's/it', fast: 'it/s' },
+          marks: [
+            { v: 1 / 100, label: '100' }, { v: 1 / 60, label: '60' }, { v: 1 / 40 },
+            { v: 1 / 30, label: '30' }, { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+            { v: 1 / 10, label: '10' }, { v: 1 / 7 }, { v: 1 / 5, label: '5' }, { v: 1 / 4 },
+            { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
+            { v: 1, label: '1', centre: true }, { v: 1.5 }, { v: 2, label: '2' },
+          ],
+        },
+      },
+      {
+        id: 'd',
+        title: 'Face D — s/it only, 120 … 1 s/it',
+        sub: 'the training face, applied to sampling: no fast half at all',
+        note: 'Best resolution of the four for video (15.7 s/it at 43%), and it cannot show an image job — 1 it/s upward is one tick. Rack card only here: the twin dial would split this the way it splits a training face, at the geometric middle.',
+        cardOnly: true,
+        spec: {
+          minLog: -Math.log10(120), maxLog: 0, units: { slow: 'sec/iter', single: true },
+          marks: [
+            { v: 1 / 120, label: '120' }, { v: 1 / 80 }, { v: 1 / 60, label: '60' }, { v: 1 / 40 },
+            { v: 1 / 30, label: '30' }, { v: 1 / 20, label: '20' }, { v: 1 / 15 },
+            { v: 1 / 10, label: '10' }, { v: 1 / 7 }, { v: 1 / 5, label: '5' }, { v: 1 / 4 },
+            { v: 1 / 3 }, { v: 1 / 2, label: '2' }, { v: 1 / 1.5 }, { v: 1, label: '1' },
+          ],
+        },
+      },
+    ];
+
+    // ── The workloads ────────────────────────────────────────────────────────────────────────
+    // Four real jobs off this rack, at the speeds they actually run.
+    const JOBS = [
+      {
+        name: 'H3 · 15.7 s/it', sPerIt: 15.69, jitter: 1.4, steps: 25, at: 5,
+        model: 'minimax_h3_fl2va_pruned_int8_convrot', size: '832x480', frames: 121, relay: true,
+      },
+      {
+        name: 'Wan 720p · 42 s/it', sPerIt: 42, jitter: 4, steps: 20, at: 3,
+        model: 'wan2.2_i2v_high_noise_14B_fp8.safetensors', size: '1280x720', frames: 81, relay: true,
+      },
+      {
+        name: 'Flux batch · 3.5 s/it', sPerIt: 3.5, jitter: 0.4, steps: 8, at: 3, pass: 3, passTotal: 28,
+        model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1, relay: true,
+      },
+      {
+        name: 'SDXL · 4.2 it/s', sPerIt: 1 / 4.2, jitter: 0.04, steps: 30, at: 11,
+        model: 'sd_xl_base_1.0.safetensors', size: '1152x896', batch: 4, relay: true,
+      },
+    ];
+
+    const LOOKS = {
+      rack: { widget: 'card', body: 'skin-rack' },
+      halo: { widget: 'card', body: 'skin-halo' },
+      room: { widget: 'reactor', idiom: 'room', body: 'layout-reactor' },
+      console: { widget: 'reactor', idiom: 'console', body: 'layout-reactor' },
+    };
+
+    const lookSelect = document.getElementById('look-select');
+    const sizeSelect = document.getElementById('size-select');
+
+    // The patch: every widget reads its graduations from faceSpec() at build time, so setting this
+    // before createCard/createReactorPanel is enough to print any face with the shipping code.
+    const realFaceSpec = window.Widgets.faceSpec;
+    let CURRENT = null;
+    window.Widgets.faceSpec = (kind) => (kind === 'training' || !CURRENT ? realFaceSpec(kind) : CURRENT.spec);
+
+    let built = [];
+
+    function build() {
+      const look = LOOKS[lookSelect.value];
+      for (const b of built) {
+        if (b.el.dataset.widget === 'reactor') window.Widgets.destroyReactorPanel(b.el);
+        else window.Widgets.destroyCard(b.el);
+      }
+      cards.replaceChildren();
+      built = [];
+
+      for (const face of FACES) {
+        const h = document.createElement('div');
+        h.className = 'mock-head';
+        const forced = face.cardOnly && look.widget === 'reactor';
+        h.innerHTML = `${face.title} <span>— ${face.sub}</span><br><em>${face.note}</em>`;
+        cards.appendChild(h);
+
+        CURRENT = face;
+        const widget = forced ? 'card' : look.widget;
+        for (const job of JOBS) {
+          const el = widget === 'reactor'
+            ? window.Widgets.createReactorPanel(`${job.name}`, 'comfyui', look.idiom)
+            : window.Widgets.createCard(`${job.name}`, 'comfyui');
+          cards.appendChild(el);
+          built.push({
+            el, job, widget,
+            sim: { step: job.at, pass: job.pass || 0, elapsed: job.at * job.sPerIt },
+          });
+        }
+        CURRENT = null;
+      }
+      paint();
+    }
+
+    function paint() {
+      for (const b of built) {
+        const j = b.job, s = b.sim;
+        const sPerIt = Math.max(0.05, j.sPerIt + (Math.random() - 0.5) * j.jitter);
+        const snap = {
+          status: 'online', queueRemaining: 1, relay: j.relay,
+          versions: { comfyui: '0.33.1', pytorch: '2.13.0', accel: 'CUDA', accelVersion: '13.0', driver: '581.15' },
+          currentJob: {
+            step: Math.floor(s.step), maxSteps: j.steps, stepsPerSec: 1 / sPerIt,
+            etaSec: (j.steps - s.step) * sPerIt, elapsedSec: s.elapsed,
+            node: '9', nodeName: 'SamplerCustomAdvanced',
+            pass: j.passTotal ? s.pass : undefined, passTotal: j.passTotal,
+            jobEtaSec: j.passTotal ? (j.passTotal - s.pass) * j.steps * sPerIt : undefined,
+            model: j.model, size: j.size, frames: j.frames, batch: j.batch,
+          },
+        };
+        if (b.widget === 'reactor') window.Widgets.updateReactorPanel(b.el, j.name, snap);
+        else window.Widgets.updateCard(b.el, j.name, snap);
+      }
+    }
+
+    function applyBody() {
+      document.body.className = `${LOOKS[lookSelect.value].body} size-${sizeSelect.value}`;
+    }
+
+    applyBody();
+    build();
+
+    // 500ms, the real snapshot cadence. Steps advance at each job's own speed so a 42 s/it module
+    // crawls and the SDXL one races, exactly as they would on the rack.
+    setInterval(() => {
+      for (const b of built) {
+        const j = b.job, s = b.sim;
+        s.step += 0.5 / j.sPerIt;
+        s.elapsed += 0.5;
+        if (s.step > j.steps) {
+          s.step = 1;
+          s.elapsed = j.sPerIt;
+          if (j.passTotal) s.pass = (s.pass % j.passTotal) + 1;
+        }
+      }
+      paint();
+    }, 500);
+
+    lookSelect.addEventListener('change', () => { applyBody(); build(); });
+    sizeSelect.addEventListener('change', applyBody);
+  })();
+  </script>
+</body>
+</html>

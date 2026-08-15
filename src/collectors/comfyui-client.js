@@ -253,6 +253,9 @@ class ComfyUIClient {
         this.currentJob.size = latent.size;
         this.currentJob.frames = latent.frames;
         this.currentJob.batch = latent.batch;
+        // What KIND of work this is, so the card can print a scale the job actually fits on. See
+        // detectMedia: a video sampler and an image sampler differ by two orders of magnitude.
+        this.currentJob.media = detectMedia(graph);
       }
       return null;
     }
@@ -635,6 +638,11 @@ class ComfyUIClient {
             size: job.size ?? null,
             frames: job.frames ?? null,
             batch: job.batch ?? null,
+            // 'video' | 'image' | null — which rate scale the card prints. This payload is an
+            // explicit whitelist, so a field the collector sets but does not list here simply never
+            // reaches the renderer: detectMedia worked and every card still read the image face
+            // (found 2026-08-14 by running the packaged build against a live H3 job).
+            media: job.media ?? null,
             step: job.step ?? null,
             maxSteps: job.maxSteps ?? null,
             // Which item of a batch is running, and how many there are if the relay told us.
@@ -702,24 +710,87 @@ function trimModelName(raw) {
  * Only width/height on a node whose class_type mentions "latent" count: an ImageScale node has
  * width/height too and is not the job's output size.
  */
+// How many frames a node says it makes, whatever it calls that input. Every video pack spells it
+// differently and none of them are going to agree.
+const FRAME_KEYS = ['length', 'num_frames', 'video_frames', 'frame_count', 'batch_size_frames'];
+
+// Node classes that only exist in a video pipeline, and model-name families that only ship video
+// weights. Both lists are deliberately about the WORK, never the prompt.
+const VIDEO_CLASS_RE = /(video|img2vid|vid2vid|animatediff|svd|framepack|wanimage|wanvideo)/i;
+const VIDEO_MODEL_RE = /(wan\d|wan2|hunyuanvideo|minimax|ltxv?|mochi|cosmos|svd|animatediff|framepack|cogvideo|h3_)/i;
+
+function frameCount(inputs) {
+  for (const k of FRAME_KEYS) {
+    if (Number.isFinite(inputs[k])) return inputs[k];
+  }
+  return null;
+}
+
 function describeLatent(graph) {
-  for (const node of Object.values(graph)) {
-    const inputs = node && typeof node === 'object' ? node.inputs : null;
-    if (!inputs) continue;
-    const w = inputs.width;
-    const h = inputs.height;
-    if (!Number.isFinite(w) || !Number.isFinite(h)) continue;
-    if (!/latent/i.test(String(node.class_type ?? ''))) continue;
-    return {
-      size: `${w}x${h}`,
-      // length is 1 on image latents — a "1 frame" row is noise, so only a real video counts.
-      frames: Number.isFinite(inputs.length) && inputs.length > 1 ? inputs.length : null,
-      // Batch size is shown for image jobs in the slot a video job uses for frames. Unlike
-      // frames, a batch of 1 is worth printing: "how many images is this" is a real answer.
-      batch: Number.isFinite(inputs.batch_size) ? inputs.batch_size : null,
-    };
+  // TWO passes, latent-class nodes first. A dedicated latent node is the authoritative statement of
+  // the output size; a video node carrying width/height is the fallback for the graphs that have no
+  // latent node at all (Wan/HunyuanVideo image-to-video builds the latent inside the node that also
+  // takes the conditioning). Interleaving them would let whichever node happened to come first in
+  // the object win.
+  // The second pass uses the SAME class list the media detector uses, so a graph that is judged
+  // video always has somewhere to read its size from — two regexes drifting apart is how the SVD
+  // conditioning node ended up detected as video with no size or frame count to show for it.
+  for (const re of [/latent/i, VIDEO_CLASS_RE]) {
+    for (const node of Object.values(graph)) {
+      const inputs = node && typeof node === 'object' ? node.inputs : null;
+      if (!inputs) continue;
+      const w = inputs.width;
+      const h = inputs.height;
+      if (!Number.isFinite(w) || !Number.isFinite(h)) continue;
+      if (!re.test(String(node.class_type ?? ''))) continue;
+      const frames = frameCount(inputs);
+      return {
+        size: `${w}x${h}`,
+        // 1 frame is an image latent — a "1 frame" row is noise, so only a real video counts.
+        frames: frames != null && frames > 1 ? frames : null,
+        // Batch size is shown for image jobs in the slot a video job uses for frames. Unlike
+        // frames, a batch of 1 is worth printing: "how many images is this" is a real answer.
+        batch: Number.isFinite(inputs.batch_size) ? inputs.batch_size : null,
+      };
+    }
   }
   return { size: null, frames: null, batch: null };
 }
 
-module.exports = { ComfyUIClient, describeModel, describeLatent, parseSystemStats };
+/**
+ * Is the running graph making video or stills?
+ *
+ * This exists because the rate instrument is a log scale with fixed ends, and a video sampler and
+ * an image sampler are two orders of magnitude apart: 15 s/it is a healthy MiniMax-H3 run and a
+ * catastrophic SDXL one. No single face can call both correctly, so the card asks the graph what it
+ * is looking at and prints the matching scale. ("15.75 s/it is not slow for video" — Bryan,
+ * 2026-08-14.)
+ *
+ * THREE SIGNALS, structural ones first, because a filename is the weakest evidence in the graph:
+ *  1. a node class that only exists in a video pipeline;
+ *  2. any node asking for more than one frame, under any of the names the packs use for it;
+ *  3. a model filename from a known video family — last, and only if 1 and 2 found nothing.
+ *
+ * @returns {'video'|'image'|null} null when there is no graph to judge, never a guess.
+ */
+function detectMedia(graph) {
+  if (!graph || typeof graph !== 'object') return null;
+  let sawNode = false;
+  for (const node of Object.values(graph)) {
+    if (!node || typeof node !== 'object') continue;
+    sawNode = true;
+    const cls = String(node.class_type ?? '');
+    if (VIDEO_CLASS_RE.test(cls)) return 'video';
+    const inputs = node.inputs;
+    if (inputs && typeof inputs === 'object') {
+      const frames = frameCount(inputs);
+      if (frames != null && frames > 1) return 'video';
+    }
+  }
+  if (!sawNode) return null;
+  const model = describeModel(graph);
+  if (model && VIDEO_MODEL_RE.test(model)) return 'video';
+  return 'image';
+}
+
+module.exports = { ComfyUIClient, describeModel, describeLatent, detectMedia, parseSystemStats };

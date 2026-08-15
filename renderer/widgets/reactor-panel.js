@@ -92,13 +92,16 @@
    * run actually sits in.
    */
   function twinSpec(kind) {
-    const face = window.Widgets.faceSpec(kind === 'training' ? 'training' : 'sampling');
+    const face = window.Widgets.faceSpec(kind);
     const min = 10 ** face.minLog; // it/s at the slow stop
     const max = 10 ** face.maxLog;
-    const training = kind === 'training';
-    // Geometric middle in log space for training; the 1:1 mark for sampling.
-    const split = training ? 10 ** ((face.minLog + face.maxLog) / 2) : 1;
-    const splitWord = training ? `${Math.round(1 / split)}s` : '1:1';
+    // Where the pair is cut is a property of the FACE, not of the host kind: any single-unit face
+    // (training, video) ends at 1 it/s, so splitting it at 1:1 would leave the right-hand movement
+    // with no scale at all. Those split coarse/fine at the geometric middle instead — the left dial
+    // covers the long tail, the right expands the band real runs sit in.
+    const single = !!face.units.single;
+    const split = single ? 10 ** ((face.minLog + face.maxLog) / 2) : 1;
+    const splitWord = single ? `${Math.round(1 / split)}s` : '1:1';
     const marks = face.marks.map((m) => ({ v: m.v, major: !!m.label || !!m.centre }));
     const half = (lo, hi) => ({
       min: lo,
@@ -127,7 +130,8 @@
     return out;
   }
 
-  function createTwinDial(kind) {
+  function createTwinDial(faceName) {
+    let kind = faceName;
     const svg = svgTag('svg', { viewBox: '0 0 240 120', class: 'p-svg' });
     // overflow hidden, unlike the other instruments: the pivots sit on the face edge, and two red
     // hubs sitting out in the open were the giveaway that this was two little meters rather than
@@ -257,6 +261,12 @@
       refreshFace() {
         drawFace();
         this.set(lastRate);
+      },
+      /** Same instrument, different scale — the running job turned out to be video. No-op if same. */
+      setFace(name) {
+        if (name === kind) return;
+        kind = name;
+        this.refreshFace();
       },
       destroy() {
         for (const half of halves) half.pointer.destroy();
@@ -510,13 +520,18 @@
   // The face's own end values, said out loud: "20 s/it" at the slow end, "20 it/s" at the fast one.
   // Trailing zeros are trimmed — these are scale ends, not readings, and "20.00 it/s" in a corner
   // label reads as a measurement of something.
-  function scaleWord(itPerSec) {
-    if (Math.abs(Math.log10(itPerSec)) < 0.01) return '1:1';
+  function scaleWord(itPerSec, single) {
+    // 1 it/s is the crossover on a two-unit face, so it is named as one: "1:1". On a single-unit
+    // face it is not a crossover at all, it is simply the fast end of a scale printed in s/it —
+    // labelling it 1:1 there invites the reading that the chart flips units halfway up, which it
+    // does not.
+    if (!single && Math.abs(Math.log10(itPerSec)) < 0.01) return '1:1';
     const v = itPerSec >= 1 ? itPerSec : 1 / itPerSec;
-    return `${Number(v.toFixed(2))} ${rateUnit(itPerSec)}`;
+    return `${Number(v.toFixed(2))} ${single ? 's/it' : rateUnit(itPerSec)}`;
   }
 
-  function createRecorder(kind) {
+  function createRecorder(faceName) {
+    let kind = faceName;
     const box = div('p-chart');
     // preserveAspectRatio="none" stretches the drawing to the panel width, which is right for a
     // trace and wrong for text — so every label here is HTML positioned over the chart, never an
@@ -539,13 +554,14 @@
     // is this second.
     box.append(plot, span('p-cap', 'Rate recorder · 60 s ago → now'));
 
-    let face = window.Widgets.faceSpec(kind === 'training' ? 'training' : 'sampling');
+    let face = window.Widgets.faceSpec(kind);
     const hist = [];
     const pos = (v) => clamp01((Math.log10(v) - face.minLog) / (face.maxLog - face.minLog));
 
     function drawScale() {
-      labFast.textContent = scaleWord(10 ** face.maxLog);
-      labSlow.textContent = scaleWord(10 ** face.minLog);
+      const single = !!face.units.single;
+      labFast.textContent = scaleWord(10 ** face.maxLog, single);
+      labSlow.textContent = scaleWord(10 ** face.minLog, single);
       // The 1:1 crossover, where the printed unit flips — the one horizontal line on this chart that
       // means something. A face that does not span it (training) simply does not draw it.
       const spans = face.minLog < 0 && face.maxLog > 0;
@@ -587,9 +603,20 @@
       },
       /** A Dials range change rescales the chart in place — the samples are unchanged. */
       refreshFace() {
-        face = window.Widgets.faceSpec(kind === 'training' ? 'training' : 'sampling');
+        face = window.Widgets.faceSpec(kind);
         drawScale();
         redraw();
+      },
+      /**
+       * Follow the dial onto a different face. The samples are kept: they are measured rates in
+       * it/s, and the chart only ever decided how to DRAW them — replotting the same 60 seconds on
+       * the new scale is the honest thing, and throwing the history away would blank the one
+       * instrument that shows what the rate was doing before the switch.
+       */
+      setFace(name) {
+        if (name === kind) return;
+        kind = name;
+        this.refreshFace();
       },
     };
   }
@@ -721,6 +748,7 @@
     const pan = div(`pan pan--${skin}`);
     pan.dataset.host = hostName;
     pan.dataset.kind = kindKey;
+    pan.dataset.face = spec.face;
     pan.dataset.idiom = skin;
     pan.dataset.widget = 'reactor';
     for (const corner of ['tl', 'tr', 'bl', 'br']) pan.appendChild(div(`p-screw p-screw--${corner}`));
@@ -833,6 +861,20 @@
     const job = snapshot?.currentJob ?? null;
     const running = !!job && !job.finished;
     const queue = snapshot?.queueRemaining ?? null;
+
+    // Print the scale this job belongs on before reading anything off the instruments. Same rule the
+    // rack card follows (job-card.js faceFor): a trainer never moves, a ComfyUI host follows what it
+    // is currently making, and unknown media keeps the face already on the panel rather than
+    // flipping back to stills in the gap between two video jobs.
+    if (pan.dataset.kind !== 'aitoolkit') {
+      const media = job?.media ?? null;
+      const face = media === 'video' ? 'video' : media === 'image' ? 'sampling' : pan.dataset.face;
+      if (face && face !== pan.dataset.face) {
+        pan.dataset.face = face;
+        p.dial.setFace(face);
+        p.recorder.setFace(face);
+      }
+    }
 
     pan.dataset.status = status;
     p.stat.textContent = status;

@@ -482,3 +482,63 @@ interpret the rate recorder. Both addressed, verified in the mock and the real a
   recorder) was discussed and deliberately not built.
 - Not started, still the standing backlog: window state persistence + tray, a UI for EDITING a host
   (only add/remove/hide/reorder exist), and other trainers (Musubi needs log tailing, no job API).
+
+## 2026-08-14 21:55 -- sampling dial range widened to 60 s/it
+
+- Complaint: a 15.7 s/it MiniMax-H3 run read as pegged SLOW on the reactor panel's twin dial. The
+  20 face stops at 20 s/it, so all video work piles onto the left stop while the fast half covers
+  speeds nothing here reaches.
+- Sampling ranges are now keyed by SLOW end with their own fast end (`SAMPLING_FAST_END` in
+  lcd.js): 5 / 20 / **60 (= 60 s/it … 5 it/s, new default)** / 100. Only the 60 face is asymmetric.
+  Settings dropdown prints both ends via the new `Widgets.dialRangeLabel`.
+- `createRateMeter` now reads its face through `window.Widgets.faceSpec` (the panel already did),
+  so ONE seam decides the scale and a mock can patch both widgets. No behaviour change.
+- `renderer/mock-sample-dial.html` added: four candidate faces x four real workloads, live, either
+  widget family. Faces C (100 s/it … 2 it/s) and D (s/it only, 120…1) are in it and were NOT
+  chosen -- both peg an image job.
+- Verified live against New Main mid-job: card read 15.75 s/it with the needle about a quarter up
+  the slow half, recorder ends printing 5 it/s / 60 s/it. Rack card face reads 60 30 20 10 5 2 1 2 5,
+  no crowding. npm test 4/4.
+- Anyone with a saved Dials setting keeps it -- the new default only applies to an unset one.
+- Still 0.0.6, uncommitted, nothing rebuilt or released.
+
+## 2026-08-14 22:20 -- video jobs get their own dial face (detected from the graph)
+
+- The 60 s/it range from the previous entry did NOT settle it: the real complaint was that an
+  absolute split face prints SLOW next to a healthy video rate. "15.75 s/it is not slow for video."
+- `detectMedia(graph)` added to comfyui-client (exported + unit-tested): video-only node classes,
+  then any >1 frame count under five different input names, then known video model families. Returns
+  null when there is no graph -- never a guess. Sets `currentJob.media`.
+- New `video` face in lcd.js: 60...1 s/it, one unit, NO SLOW/FAST words, ranges 30/60/120 (default
+  60), own localStorage key, own row in the hosts panel (Images / Video / Training).
+- Both widgets switch face per job via `setFace` (a reprint, not a rebuild); unknown media keeps the
+  face already on the card so it cannot flip between jobs. twinSpec now splits on
+  `face.units.single` rather than kind === 'training', so the video face gets the coarse/fine split.
+- describeLatent takes a second pass over the video node classes (Wan/Hunyuan i2v have no latent
+  node). Same regex constant as the detector -- when they differed, an SVD graph detected as video
+  had no size/frames.
+- Recorder end labels say "1 s/it" instead of "1:1" on single-unit faces.
+- VERIFIED: detectMedia against Bryan's real H3 graph from /history => 'video' (matched
+  MiniMaxH3ReferenceToVideo). Visual in mock-skins, which now carries a video host: rack card face
+  reads 60 30 20 10 5 2 1 with one s/it unit word, needle mid-arc at 15.7 s/it; console panel the
+  same with the recorder trace off the floor. npm test 4/4.
+- NOT verified live in the app: New Main had no job running by then. First H3 run he starts is the
+  check -- the card should flip to the video face within a second of the job appearing.
+- His H3 workflow wires width/height/length as links, so SIZE and FRAMES stay hidden on that card.
+  Correct, not a bug: those numbers do not exist in the graph.
+- Still 0.0.6, uncommitted.
+
+## 2026-08-14 23:10 -- v0.0.7 SHIPPED (video face + detection)
+
+- 0.0.6 -> 0.0.7. Ships: the 60 s/it asymmetric sampling range, the detected video face, and the
+  dial-range label/ordering changes.
+- BUG CAUGHT BY RUNNING THE PACKAGED BUILD, not by any test: `_emit()`'s currentJob payload is an
+  explicit whitelist, so `media` never reached the renderer -- detectMedia was right about every
+  graph and every card still printed the image face. Fixed, and pinned by a test that asserts on
+  the EMITTED snapshot rather than on client.currentJob.
+- Verified end to end on the packaged exe against a stub ComfyUI serving an H3-style video graph
+  (throwaway --user-data-dir, real hosts.json untouched): card came online, face = video, labels
+  60 30 20 10 5 2 1, one s/it unit word, no page errors.
+- Still NOT seen against a real running video job -- New Main was idle all evening. First H3 run is
+  the last check.
+- All three installers built and attached to the release.

@@ -85,6 +85,29 @@ const KINDS = {
   },
 };
 
+/**
+ * Which face this card's meter should be printing right now.
+ *
+ * A trainer is always the training face. A ComfyUI host is whatever it is CURRENTLY doing: the
+ * collector reads the running graph and says `video` or `image`, and the two are two orders of
+ * magnitude apart — 15 s/it is a healthy MiniMax-H3 run and a broken SDXL one. The split
+ * sampling face cannot represent both, and worse, it prints the word SLOW beside a perfectly
+ * normal video rate. The video face has no such word (one unit, no split) and puts that reading
+ * mid-arc.
+ *
+ * Unknown media (no graph yet, a host without the relay, an idle host) KEEPS THE FACE ALREADY ON
+ * THE CARD rather than snapping back to the sampling face — the gap between two video jobs is not
+ * evidence that the next one is stills, and a face that flips on every gap is worse than one that
+ * is occasionally a job behind.
+ */
+function faceFor(card, kindKey, job) {
+  if (kindKey === 'aitoolkit') return 'training';
+  const media = job?.media ?? null;
+  if (media === 'video') return 'video';
+  if (media === 'image') return 'sampling';
+  return card.dataset.face || 'sampling';
+}
+
 /** @param {'comfyui'|'aitoolkit'} [kind] selects face + identity labels; see KINDS. */
 function createCard(hostName, kind) {
   const kindKey = KINDS[kind] ? kind : 'comfyui';
@@ -93,6 +116,7 @@ function createCard(hostName, kind) {
   card.className = 'job-card';
   card.dataset.host = hostName;
   card.dataset.kind = kindKey;
+  card.dataset.face = spec.face;
 
   // Four corner screws. Decorative, but they are what makes the card read as a bolted-in
   // module rather than another rounded panel — the whole direction rests on them.
@@ -229,6 +253,13 @@ function updateCard(card, hostName, snapshot) {
   card.dataset.status = status;
 
   const job = snapshot?.currentJob;
+  // Before anything is read off the instrument: make sure it is printed with the scale this job
+  // belongs on. setFace is a no-op when nothing changed, and a reprint when it did.
+  const face = faceFor(card, card.dataset.kind, job);
+  if (face !== card.dataset.face) {
+    card.dataset.face = face;
+    meter.setFace(face);
+  }
   const nodeEl = card.querySelector('.jc-node');
   const fill = card.querySelector('.jc-bar-fill');
   const stepEl = card.querySelector('.jc-step');

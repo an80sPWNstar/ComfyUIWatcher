@@ -1,6 +1,6 @@
 const assert = require('assert');
 const {
-  ComfyUIClient, describeModel, describeLatent, parseSystemStats,
+  ComfyUIClient, describeModel, describeLatent, detectMedia, parseSystemStats,
 } = require('../src/collectors/comfyui-client');
 
 function makeClient() {
@@ -119,6 +119,35 @@ function makeClient() {
   assert.strictEqual(client._nodeName('999'), null, 'unknown id resolves to null (renderer shows raw id)');
 }
 
+// The snapshot payload is an explicit whitelist of fields, so anything the collector works out and
+// forgets to list there never reaches a card. detectMedia shipped that way once: it was right about
+// every graph and every card still printed the image face, because `media` was not in this object.
+{
+  const emitted = [];
+  const client = new ComfyUIClient({ name: 'test', url: 'http://127.0.0.1:1' }, (_h, snap) => emitted.push(snap));
+  client._applyQueue({
+    queue_running: [[0, 'pv1', {
+      '12': { class_type: 'UNETLoader', inputs: { unet_name: 'wan2.2_i2v_high_noise_14B_fp8.safetensors' } },
+      '7': { class_type: 'WanImageToVideo', inputs: { width: 832, height: 480, length: 121 } },
+    }, {}, []]],
+  });
+  client._emit();
+  const job = emitted.at(-1).currentJob;
+  assert.strictEqual(job.media, 'video', 'media must survive into the emitted snapshot');
+  assert.strictEqual(job.size, '832x480');
+  assert.strictEqual(job.frames, 121);
+
+  const stills = [];
+  const still = new ComfyUIClient({ name: 'test', url: 'http://127.0.0.1:1' }, (_h, snap) => stills.push(snap));
+  still._applyQueue({
+    queue_running: [[0, 'pi1', {
+      '5': { class_type: 'EmptyLatentImage', inputs: { width: 1024, height: 1024, batch_size: 2 } },
+    }, {}, []]],
+  });
+  still._emit();
+  assert.strictEqual(stills.at(-1).currentJob.media, 'image');
+}
+
 // ---- REST poller reconciliation (_applyQueue / _applyHistory are pure state methods) ----
 
 // A running foreign job appears in /queue → a fresh poll-sourced job is created.
@@ -223,6 +252,60 @@ function makeClient() {
   const noLatent = { '5': { class_type: 'ImageScale', inputs: { width: 512, height: 512 } } };
   assert.strictEqual(describeLatent(noLatent).size, null, 'width/height on a non-latent node is not the job size');
   assert.deepStrictEqual(describeLatent({}), { size: null, frames: null, batch: null });
+
+  // A graph with NO latent node at all: Wan/HunyuanVideo image-to-video builds the latent inside
+  // the node that takes the conditioning, so the size lived nowhere the old rule looked and the
+  // card showed neither SIZE nor FRAMES for the exact jobs that need them most.
+  const wan = { '7': { class_type: 'WanImageToVideo', inputs: { width: 832, height: 480, length: 121, batch_size: 1 } } };
+  assert.deepStrictEqual(describeLatent(wan), { size: '832x480', frames: 121, batch: 1 });
+
+  // Every pack names the frame input differently.
+  const svd = { '7': { class_type: 'SVD_img2vid_Conditioning', inputs: { width: 1024, height: 576, video_frames: 25 } } };
+  assert.strictEqual(describeLatent(svd).frames, 25, 'video_frames counts as frames');
+
+  // A real latent node WINS over a video node carrying the same fields — it is the authoritative
+  // statement of the output size, whatever order the graph object happens to be in.
+  const both = {
+    '7': { class_type: 'WanImageToVideo', inputs: { width: 512, height: 512, length: 49 } },
+    '5': { class_type: 'EmptyHunyuanLatentVideo', inputs: { width: 1280, height: 720, length: 121 } },
+  };
+  assert.strictEqual(describeLatent(both).size, '1280x720', 'the latent node is the size of record');
+}
+
+// detectMedia: which SCALE the rate instrument should print. Video and image sampling are two
+// orders of magnitude apart, so this is what stops a healthy 15 s/it video run reading as SLOW.
+{
+  const sdxl = {
+    '4': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'sd_xl_base_1.0.safetensors' } },
+    '5': { class_type: 'EmptyLatentImage', inputs: { width: 1024, height: 1024, batch_size: 4 } },
+    '3': { class_type: 'KSampler', inputs: { steps: 30 } },
+  };
+  assert.strictEqual(detectMedia(sdxl), 'image');
+
+  // Signal 1: a node class that only exists in a video pipeline.
+  assert.strictEqual(detectMedia({ '7': { class_type: 'WanImageToVideo', inputs: {} } }), 'video');
+  assert.strictEqual(detectMedia({ '7': { class_type: 'VHS_VideoCombine', inputs: {} } }), 'video');
+
+  // Signal 2: more than one frame, under any of the names the packs use.
+  assert.strictEqual(detectMedia({ '5': { class_type: 'EmptyLatentImage', inputs: { length: 81 } } }), 'video');
+  assert.strictEqual(detectMedia({ '5': { class_type: 'SomeNode', inputs: { num_frames: 49 } } }), 'video');
+  assert.strictEqual(
+    detectMedia({ '5': { class_type: 'EmptyLatentImage', inputs: { length: 1, batch_size: 8 } } }),
+    'image',
+    'one frame and a batch of 8 is eight stills, not a video',
+  );
+
+  // Signal 3, last resort: the model family. Bryan's H3 workflow is exactly this case — a
+  // SamplerCustomAdvanced graph whose video-ness is only visible in the checkpoint name.
+  const h3 = {
+    '12': { class_type: 'UNETLoader', inputs: { unet_name: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors' } },
+    '9': { class_type: 'SamplerCustomAdvanced', inputs: {} },
+  };
+  assert.strictEqual(detectMedia(h3), 'video');
+
+  // No graph is not a guess.
+  assert.strictEqual(detectMedia(null), null);
+  assert.strictEqual(detectMedia({}), null, 'an empty graph says nothing either way');
 }
 
 // _applyQueue folds identity onto the job it starts.

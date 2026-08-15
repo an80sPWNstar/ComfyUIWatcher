@@ -59,7 +59,7 @@
           currentJob: {
             step: 3, maxSteps: 8, stepsPerSec: 0.28, etaSec: 18, elapsedSec: 96, jobEtaSec: 640,
             node: '9', nodeName: 'KSampler', pass: 3, passTotal: 28,
-            model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1,
+            model: 'flux2-klein-fp8.safetensors', size: '1024x1024', batch: 1, media: 'image',
           },
         },
         tick(j) { // batch job: the bar restarts every 8 steps and the item counter advances
@@ -86,6 +86,29 @@
         tick(j) { // fast sampler: needle well right of centre, rate jitters
           j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
           j.stepsPerSec = 2.9 + Math.random() * 1.4;
+          j.etaSec = (j.maxSteps - j.step) / j.stepsPerSec;
+          j.elapsedSec += 0.5;
+        },
+      },
+      {
+        // A VIDEO job, at the speed Bryan's MiniMax-H3 actually runs. The collector detects video
+        // from the graph and the card prints the video face for it: one unit, no SLOW/FAST words,
+        // 15.75 s/it mid-arc instead of pinned to the stop. The two ComfyUI hosts above are the
+        // image case, so the rack shows both scales side by side — which is the point.
+        name: 'Wan Box', kind: 'comfyui',
+        snap: {
+          status: 'online', queueRemaining: 1, relay: true,
+          versions: { comfyui: '0.33.1', pytorch: '2.13.0', accel: 'CUDA', accelVersion: '13.0', driver: '581.15' },
+          currentJob: {
+            step: 7, maxSteps: 25, stepsPerSec: 1 / 15.75, etaSec: 283, elapsedSec: 110,
+            node: '9', nodeName: 'SamplerCustomAdvanced', media: 'video',
+            model: 'minimax_h3_fl2va_pruned_int8_convrot', size: '832x480', frames: 121,
+          },
+        },
+        tick(j) { // slow sampler: one step every ~16s (32 ticks), so the needle barely moves
+          j._t = (j._t ?? 0) + 1;
+          if (j._t % 32 === 0) j.step = j.step >= j.maxSteps ? 1 : j.step + 1;
+          j.stepsPerSec = 1 / (14.8 + Math.random() * 1.8);
           j.etaSec = (j.maxSteps - j.step) / j.stepsPerSec;
           j.elapsedSec += 0.5;
         },
