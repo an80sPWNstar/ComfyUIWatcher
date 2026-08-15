@@ -542,3 +542,16 @@ interpret the rate recorder. Both addressed, verified in the mock and the real a
 - Still NOT seen against a real running video job -- New Main was idle all evening. First H3 run is
   the last check.
 - All three installers built and attached to the release.
+
+## 2026-08-14 23:15 -- session close
+
+- main = a94c055, clean, pushed. Release:
+  https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.7 (exe 78.6MB, AppImage 107.6MB,
+  deb 74.5MB).
+- App left running from source, 1U Rack look.
+- OPEN: (1) watch a real video job land on the video face -- everything so far was a stub or a
+  history graph; (2) restart both ComfyUI instances so the relay's host_info route loads (DRIVER
+  window); (3) ROCm detection is still unit-tested only.
+- renderer/mock-sample-dial.html is committed as the design record for the range decision. Faces C
+  (100 s/it - 2 it/s) and D (s/it only) were rejected: both peg an image job.
+- Backlog unchanged: window state persistence + tray, a UI for EDITING a host, other trainers.
