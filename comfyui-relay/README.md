@@ -34,34 +34,50 @@ They don't do anything to your graph. No inputs, no outputs, they never execute.
 
 ## Install
 
-1. Download this folder (green **Code** button → **Download ZIP**, or `git clone`).
-2. Put it in your ComfyUI `custom_nodes` folder, so you end up with:
+Clone it into your ComfyUI `custom_nodes` folder:
 
-   ```
-   ComfyUI/custom_nodes/comfyui-watcher-relay/
-       __init__.py
-       README.md
-       web/
-   ```
+```
+cd ComfyUI/custom_nodes
+git clone https://github.com/an80sPWNstar/comfyui-watcher-nodes
+```
 
-   Windows portable: `ComfyUI_windows_portable\ComfyUI\custom_nodes\`
-   Desktop app: whatever base folder you picked at setup, then `ComfyUI\custom_nodes\`
-   Linux: `~/ComfyUI/custom_nodes/`
+Windows portable: `ComfyUI_windows_portable\ComfyUI\custom_nodes\`
+Desktop app: whatever base folder you picked at setup, then `ComfyUI\custom_nodes\`
+Linux: `~/ComfyUI/custom_nodes/`
 
-3. Restart ComfyUI. Not just refresh the browser — it has to restart, it's a Python folder.
-4. In the log you should see:
+Then **restart ComfyUI** — not just a browser refresh, it's a Python folder. In the log you
+should see:
 
-   ```
-   comfyuiWATCHER progress relay installed (broadcasting watcher.* events)
-   ```
+```
+comfyuiWATCHER progress relay installed (broadcasting watcher.* events)
+```
 
-5. Right click the canvas → **Add Node → comfyuiWATCHER** → pick one.
+Right click the canvas → **Add Node → comfyuiWATCHER** → pick one.
 
 No pip installs, no requirements.txt, nothing to build. It's plain Python and plain JS.
 
+### If you'd rather not use git
+
+Green **Code** button → **Download ZIP**, unzip, and put the folder in `custom_nodes`. You want
+to end up with:
+
+```
+ComfyUI/custom_nodes/comfyui-watcher-nodes/
+    __init__.py
+    README.md
+    web/
+```
+
 If the nodes don't show up, it's almost always that the folder is nested one level too deep —
-`custom_nodes/comfyui-watcher-relay-main/comfyui-watcher-relay/` is the usual one after unzipping.
+`custom_nodes/comfyui-watcher-nodes-main/comfyui-watcher-nodes/` is the usual one after unzipping.
 The `__init__.py` has to be directly inside the folder that sits in `custom_nodes`.
+
+### Upgrading from an earlier copy
+
+These nodes used to ship inside the [comfyuiWATCHER desktop
+app](https://github.com/an80sPWNstar/ComfyUIWatcher) as a folder called `comfyui-watcher-relay`.
+If you have that one, **delete it** before installing this — two copies register the nodes twice
+and patch the progress relay twice.
 
 ## The VRAM node only shows the GPU you're actually using
 

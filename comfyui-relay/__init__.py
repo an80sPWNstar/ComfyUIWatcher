@@ -8,8 +8,9 @@
 # execution message as a broadcast copy under a "watcher."-prefixed event type, so ComfyUI's
 # own frontends ignore it and only watchers that opt in consume it.
 #
-# Install: copy this folder into ComfyUI/custom_nodes/ and restart ComfyUI.
-# No graph nodes are registered; the patch happens at import time.
+# Install: clone/copy this folder into ComfyUI/custom_nodes/ and restart ComfyUI. The relay patch
+# happens at import time; the display-only canvas nodes are registered further down (see
+# NODE_CLASS_MAPPINGS) and never execute.
 
 import logging
 

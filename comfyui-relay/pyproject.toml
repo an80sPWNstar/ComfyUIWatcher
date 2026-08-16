@@ -1,0 +1,18 @@
+[project]
+name = "comfyui-watcher-nodes"
+description = "On-canvas run instruments for ComfyUI: step, rate, elapsed, ETA and VRAM, in a node you park in the corner of your graph."
+version = "1.0.0"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+# Plain Python and plain JS. Nothing to install.
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/an80sPWNstar/comfyui-watcher-nodes"
+
+[tool.comfy]
+# PublisherId comes from your account at https://registry.comfy.org — it is NOT the GitHub
+# username unless you registered it that way. Registry publish fails until this is filled in.
+PublisherId = ""
+DisplayName = "Watcher Nodes"
+Icon = ""
