@@ -714,3 +714,32 @@ Two asks off screenshots of the running build, both done and looked at:
   Needs Bryan's say-so before writing into D:\ComfyUI_Installs.
 - `npm test` 5/5 (6 new assertions on the held rate and the relabelled well). Still 0.0.7,
   uncommitted.
+
+## 2026-08-16 01:5x -- v0.0.8 SHIPPED (Windows only -- WSL is down)
+
+- Node pack copied into BOTH installs: only `web/face.js` and `web/job-state.js` differed, so those
+  two were copied rather than replacing the folder; hashes match the repo on New Main and Secondary.
+  Web assets are served per request, so a browser refresh of the ComfyUI tab picks them up -- NO
+  ComfyUI restart needed for this change, unlike a Python one.
+- 0.0.7 -> 0.0.8. Commit 3c04de2 pushed to main. Release published and marked Latest:
+  https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.8
+- VERIFIED BY RUNNING THE PACKAGED BUILD, not by exit code: launched `dist/win-unpacked` with
+  `--remote-debugging-port=9222` and attached over CDP (playwright's _electron driver cannot launch a
+  packaged app). Two reactor panels, Control Room, live New Main + Secondary, the new type scale
+  live in the shipped CSS (name 17px, tile 10.5px, plate 14px), zero page errors. The asar was also
+  checked for `_etaSec`, the held-rate ETA fix and the `.pan--room .t-read` ink rule, and
+  `resources/comfyui-relay/web/face.js` for the FINISHED wording.
+- **NO LINUX ARTIFACTS THIS RELEASE.** WSL2 will not start on this box any more:
+  `HCS_E_HYPERV_NOT_INSTALLED`, and `Win32_ComputerSystem.HypervisorPresent` is False -- virtualization
+  is off at the firmware/feature level, which is a BIOS + elevated-install fix, not a distro problem.
+  It worked on 2026-08-14, so something changed around the crash. AppImage/deb need mksquashfs and
+  fpm (Linux binaries; electron-builder cannot make them on native Windows) and Docker needs the same
+  virtualization, so there is no way around it from here.
+  **NEXT SESSION, once WSL is back:** rsync into ~/cw-build, `npx electron-builder --linux`, then
+  `gh release upload v0.0.8 <AppImage> <deb>` -- the release is deliberately left with one asset
+  rather than attaching the stale 0.0.7 Linux builds. The release notes say so.
+- `dist/` still holds the 0.0.7 AppImage and deb. They are the OLD build; do not attach them to
+  v0.0.8.
+- Open, unchanged: ROCm detection is unit-tested only; the pack's README images are mock renders
+  rather than captures from a real canvas; the pack still lives in a subfolder of this repo and
+  probably wants its own before a Reddit post.
