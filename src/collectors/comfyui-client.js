@@ -43,7 +43,15 @@ const FINISHED_HOLD_MS = 10000; // how long a finished job stays on the card bef
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 10000]; // caps at 10s
 // How long a job must have been running, with no watcher.* traffic, before we will say the relay
 // is missing. A relay speaks within a step of the job starting; this is generous on purpose.
-const RELAY_VERDICT_MS = 10000;
+// How long a job must run with no watcher.* traffic before we call the relay absent.
+//
+// 10s was WRONG and produced a false "no relay — steps unavailable" against a host whose relay was
+// verifiably working (Secondary, 2026-08-15: a WS tap saw watcher.progress, the card said absent).
+// The relay only speaks when ComfyUI does, and a MiniMax-H3 sampler emits one progress message
+// every 20-30 seconds — so a 10s window routinely holds none of them on exactly the slow video job
+// this widget exists to watch. 90s clears his slowest recorded step time (30 s/it) with room, and
+// the cost of waiting is only that an honestly-missing relay is reported a minute later.
+const RELAY_VERDICT_MS = 90000;
 // How often the host's own build info is re-read. These change when ComfyUI restarts, not while it
 // runs, so this is a "did the box get updated" poll, not a monitor — 5 minutes is generous.
 const INFO_POLL_MS = 300000;
@@ -480,9 +488,22 @@ class ComfyUIClient {
     }
     // `data.max > 0`, not `!= null`: a bar reporting a max of 0 has nothing to count down to, and
     // (0 - value) / rate clamped at zero would print "ETA 0.0s" on a job that just started.
-    this.currentJob.etaSec = stepsPerSec > 0 && data.max > 0
-      ? Math.max(0, (data.max - data.value) / stepsPerSec)
+    //
+    // Recorded at the moment of the step, and DRAINED between steps by _etaSec() below — the raw
+    // figure only changes when a step lands, which on a 20-30 s/it video sampler means a card that
+    // sits frozen for half a minute and then jumps.
+    //
+    // IT READS THE HELD RATE, not the fresh estimate. On the first step of every batch item the
+    // window was just emptied, so `stepsPerSec` above is null while `currentJob.stepsPerSec` still
+    // carries the measurement being held by the rule right above this. Using the local one blanked
+    // the ETA for one step in every item while the RATE beside it kept reading — the same
+    // bright/dark flicker the hold rule exists to stop, in the other well.
+    const rate = this.currentJob.stepsPerSec;
+    this.currentJob.etaAtStepSec = rate > 0 && data.max > 0
+      ? Math.max(0, (data.max - data.value) / rate)
       : null;
+    this.currentJob.etaStepAtMs = now;
+    this.currentJob.etaSec = this._etaSec();
     this.currentJob.jobEtaSec = this._estimateJobEtaSec();
   }
 
@@ -596,6 +617,27 @@ class ComfyUIClient {
   }
 
   /**
+   * ETA that ticks down between steps.
+   *
+   * The step in flight is counted apart from the ones after it: each later step is worth a full
+   * step-time, and the running one is worth whatever is left of its own. That drains at one second
+   * per second instead of standing still and then jumping.
+   *
+   * IT STOPS AT THE END OF THE CURRENT STEP. If the job stalls, the in-flight term floors at zero
+   * and the figure holds at the whole steps remaining — a countdown that kept running through a
+   * stall would promise a finish that is not coming. Same rule as the canvas node's job-state.js;
+   * if one changes, change both.
+   */
+  _etaSec() {
+    const job = this.currentJob;
+    if (!job || job.etaAtStepSec == null || !(job.stepsPerSec > 0)) return null;
+    const stepTime = 1 / job.stepsPerSec;
+    const since = job.etaStepAtMs ? Math.max(0, (Date.now() - job.etaStepAtMs) / 1000) : 0;
+    const whole = Math.max(0, job.etaAtStepSec - stepTime); // the steps after the one in flight
+    return whole + Math.max(0, stepTime - since);
+  }
+
+  /**
    * true / false / null for "is the relay node installed on this host".
    *
    * true is proof: only the relay emits watcher.* traffic. false is a claim, so it is only made
@@ -651,7 +693,7 @@ class ComfyUIClient {
             pass: job.pass ?? null,
             passTotal: job.passNode != null ? this._batchTotals[String(job.passNode)] ?? null : null,
             stepsPerSec: job.stepsPerSec ?? null,
-            etaSec: job.finished ? null : job.etaSec ?? null,
+            etaSec: job.finished ? null : this._etaSec(),
             // Whole-batch ETA. Null on a single-image job and on any run where the relay never
             // sent a total — the card hides the slot rather than showing a dash beside a live one.
             jobEtaSec: job.finished ? null : job.jobEtaSec ?? null,

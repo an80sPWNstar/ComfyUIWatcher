@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "private": true,
+  "description": "Marks this folder's .js files as ES modules so node (and therefore test/watcher-node.test.js) loads them the same way the browser does. ComfyUI only serves these files statically; it never reads this."
+}

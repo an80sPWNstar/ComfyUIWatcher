@@ -5,3 +5,4 @@ dist/
 # assets live under assets/, so ignoring root PNGs only catches throwaways.
 /*.png
 .playwright-mcp/
+__pycache__/

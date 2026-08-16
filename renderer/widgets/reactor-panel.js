@@ -141,8 +141,10 @@
     // printed on it, and two abutting rectangles read as two instruments that happen to touch.
     svg.appendChild(svgTag('rect', { x: 2, y: 2, width: 236, height: 116, rx: 18, class: 't-face' }));
 
-    const readVal = svgTag('text', { x: 120, y: 57, class: 't-read' });
-    const readUnit = svgTag('text', { x: 120, y: 71, class: 't-read-unit' });
+    // Baselines are set apart by more than the ink needs: the figure grew to 23 units in the
+    // 2026-08-16 type pass and its descenders would otherwise sit in the unit word's ascenders.
+    const readVal = svgTag('text', { x: 120, y: 56, class: 't-read' });
+    const readUnit = svgTag('text', { x: 120, y: 73, class: 't-read-unit' });
     const noRate = svgTag('text', { x: 120, y: 89, class: 'm-nosig' });
     noRate.textContent = 'NO RATE';
 
@@ -465,6 +467,43 @@
     };
   }
 
+  // ── Big time window ────────────────────────────────────────────────────────────────────────
+  // ETA in the same well and at the same weight as STEPS LEFT (Bryan, 2026-08-15: the tell-tale
+  // strip's 11.5px figures were "WAAAAY too small"). It is the most-asked question of a watcher, so
+  // it gets the second-biggest readout on the panel rather than a footnote under the bulb banks.
+  //
+  // It is NOT the digit mechanism: a split-flap wheel holds one character per position, and "8m39s"
+  // is not a number — faking it would mean five wheels showing letters, which no counter does. Same
+  // well, same scale, mono glyphs.
+  function createTimeWindow() {
+    const win = div('p-timewin');
+    const val = span('p-timeval', '--');
+    win.appendChild(val);
+    return {
+      win,
+      set(text, live) {
+        val.textContent = text;
+        win.classList.toggle('p-timewin--dim', !live);
+      },
+    };
+  }
+
+  // ── Medium readout ─────────────────────────────────────────────────────────────────────────
+  // Elapsed / Queue / Batch ETA: below ETA in the same column, at a size that can actually be read
+  // across a desk. Half the ETA window, still three times the strip they replaced.
+  function createMini(label) {
+    const wrap = div('p-mini');
+    const val = span('p-mini-val', '--');
+    wrap.append(val, span('p-cap', label));
+    return {
+      wrap,
+      set(text, live) {
+        val.textContent = text;
+        val.classList.toggle('p-mini-val--dim', !live);
+      },
+    };
+  }
+
   // ── Digital counter window ─────────────────────────────────────────────────────────────────
   function createCounter(label) {
     const wrap = div('p-count-wrap');
@@ -497,11 +536,6 @@
         val.classList.remove('p-count-val--dim');
       },
     };
-  }
-
-  function setTell(slot, text, live) {
-    slot.v.textContent = text;
-    slot.v.classList.toggle('p-tell-val--dim', !live);
   }
 
   // ── Rate recorder ──────────────────────────────────────────────────────────────────────────
@@ -704,12 +738,10 @@
     { key: 'pytorch', label: 'PyTorch' },
     { key: 'accel', label: 'CUDA' },
   ];
-  const TRAIN_WINDOWS = [
-    { key: 'eta', label: 'ETA' },
-    { key: 'elapsed', label: 'Elapsed' },
-    { key: 'loss', label: 'Loss' },
-    { key: 'queue', label: 'Queue' },
-  ];
+  // A trainer's ETA / Elapsed / Queue are now the shared big readouts in the middle column, the same
+  // as a generation panel's, so the windows column keeps only what is peculiar to training. The
+  // panel structure still does not fork: same slots, different contents.
+  const TRAIN_WINDOWS = [{ key: 'loss', label: 'Loss' }];
 
   const KIND_SPECS = {
     comfyui: {
@@ -718,7 +750,6 @@
       stepBank: 'Step Progress',
       identLabels: ['Model', 'Size', 'Batch'],
       windows: COMFY_WINDOWS,
-      tellTale: true, // ETA / Elapsed / Batch ETA / Queue, in one line under the banks
       unit: 'UNIT G-1',
       digits: 2, // a sampler node rarely passes two digits; the mechanism grows if one does
     },
@@ -728,7 +759,6 @@
       stepBank: 'Run Progress',
       identLabels: ['Base Model', 'Resolution', 'Rank'],
       windows: TRAIN_WINDOWS,
-      tellTale: false,
       unit: 'UNIT T-1',
       digits: 4,
     },
@@ -790,6 +820,24 @@
     const steps = createStepCounter(skin, spec.digits);
     stepsBox.append(steps.win, span('p-cap', 'Steps Left'));
 
+    // ETA gets its own well, directly under STEPS LEFT: the two questions a watcher is actually
+    // asked ("how much is left" / "how long is that") now read as a pair, at the same weight.
+    const etaBox = div('p-inst p-inst--time');
+    const etaWin = createTimeWindow();
+    etaBox.append(etaWin.win, span('p-cap', 'ETA'));
+
+    // The rest of the live figures, one row of medium windows under the ETA.
+    const miniRow = div('p-minis');
+    const minis = {};
+    const miniSpecs = spec.train
+      ? [['elapsed', 'Elapsed'], ['queue', 'Queue']]
+      : [['elapsed', 'Elapsed'], ['queue', 'Queue'], ['jobeta', 'Batch ETA']];
+    for (const [key, label] of miniSpecs) {
+      const mini = createMini(label);
+      minis[key] = mini;
+      miniRow.append(mini.wrap);
+    }
+
     const counts = div('p-counts');
     const windows = {};
     for (const w of spec.windows) {
@@ -797,10 +845,16 @@
       windows[w.key] = win;
       counts.append(win.wrap);
     }
+    // One window alone in a two-column grid sits in half a column with a hole beside it.
+    if (spec.windows.length < 2) counts.classList.add('p-counts--single');
 
     const stack = div('p-stack');
-    stack.append(stepsBox, counts);
-    row.append(rateBox, progBox, stack);
+    stack.append(stepsBox, etaBox, miniRow);
+    // The cycle movement moved out of its own column and on top of the build-info windows
+    // (Bryan's arrangement, 2026-08-15) — that is what freed the middle column for the readouts.
+    const side = div('p-side');
+    side.append(progBox, counts);
+    row.append(rateBox, stack, side);
 
     const recorder = createRecorder(spec.face);
 
@@ -808,23 +862,6 @@
     const ledStep = createLedBank(spec.stepBank);
     const ledFlow = createLedBank('Workflow');
     leds.append(ledStep.row, ledFlow.row);
-
-    // ── Tell-tale line ──
-    // The live job figures, in one strip instead of four windows. They were not dropped when the
-    // windows became build info: ETA is the single most-asked question of a watcher, and a panel
-    // that shows a driver version but not "when is it done" would be a worse instrument.
-    const tell = spec.tellTale ? div('p-tell') : null;
-    const tells = {};
-    if (tell) {
-      for (const [key, label] of [['elapsed', 'Elapsed'], ['eta', 'ETA'], ['jobeta', 'Batch ETA'], ['queue', 'Queue']]) {
-        const item = div('p-tell-item');
-        const l = span('p-tell-lab', label);
-        const v = span('p-tell-val', '--');
-        item.append(l, v);
-        tell.appendChild(item);
-        tells[key] = { item, v };
-      }
-    }
 
     // ── Identity plate ──
     const plate = div('p-plate');
@@ -841,11 +878,11 @@
     const pCount = plateRow(spec.identLabels[2]);
     const pProcess = plateRow('Process');
 
-    pan.append(head, ann, row, recorder.box, leds, ...(tell ? [tell] : []), plate);
+    pan.append(head, ann, row, recorder.box, leds, plate);
 
     pan._reactor = {
       spec, train, tiles, jewel, mode, stat, dial, pct, steps, recorder,
-      rateBox, progBox, stepsBox, windows, tells,
+      rateBox, progBox, stepsBox, etaBox, etaWin, minis, windows,
       leds: { step: ledStep, flow: ledFlow },
       plate: { model: pModel, size: pSize, count: pCount, process: pProcess },
     };
@@ -947,14 +984,28 @@
 
     p.recorder.push(rate);
 
-    // ── Windows under the step counter ──
+    // ── The live figures ──
+    // ETA in its own well under STEPS LEFT, the rest in medium windows below it. Same honesty as
+    // everywhere else: an ETA is only claimed while a job is running AND a rate has been measured,
+    // so a queued or finished job reads `--` rather than a number nobody computed.
     const jobEta = running && Number.isFinite(job.jobEtaSec) ? job.jobEtaSec : null;
+    const etaLive = running && job?.etaSec != null;
+    p.etaWin.set(etaLive ? fmtSeconds(job.etaSec) : '--', etaLive);
+    p.etaBox.classList.toggle('p-inst--live', etaLive);
+
+    p.minis.elapsed.set(job?.elapsedSec != null ? fmtSeconds(job.elapsedSec) : '--', job?.elapsedSec != null);
+    p.minis.queue.set(queue != null ? String(queue) : '--', !!queue);
+    if (p.minis.jobeta) {
+      // Batch ETA is hidden entirely on a job that is not a batch — the same rule the rack card
+      // follows, and for the same reason: one dead entry beside two live ones reads as broken.
+      p.minis.jobeta.wrap.hidden = jobEta == null;
+      p.minis.jobeta.set(jobEta != null ? fmtSeconds(jobEta) : '--', jobEta != null);
+    }
+
+    // ── Windows beside the cycle movement ──
     if (p.train) {
-      p.windows.eta.set(running && job.etaSec != null ? fmtSeconds(job.etaSec) : '--', running && job?.etaSec != null);
-      p.windows.elapsed.set(job?.elapsedSec != null ? fmtSeconds(job.elapsedSec) : '--', job?.elapsedSec != null);
       // Loss stays "--" until the run has written its first sample; 0.0000 would be a lie.
       p.windows.loss.set(job?.loss != null ? job.loss.toFixed(4) : '--', job?.loss != null);
-      p.windows.queue.set(queue != null ? String(queue) : '--', !!queue);
     } else {
       // What the host is built from. These are facts about the box, not readings off the job, so
       // they are set static (plate ink, no glow) and a window with nothing behind it is REMOVED —
@@ -976,17 +1027,6 @@
       const stackVersion = typeof v?.accelVersion === 'string' && v.accelVersion ? v.accelVersion : null;
       p.windows.accel.relabel(stack && stackVersion ? stack : 'Backend');
       p.windows.accel.setStatic(stack ? stackVersion ?? stack : null);
-    }
-
-    // ── Tell-tale line (generation panels) ──
-    if (p.spec.tellTale) {
-      setTell(p.tells.elapsed, job?.elapsedSec != null ? fmtSeconds(job.elapsedSec) : '--', job?.elapsedSec != null);
-      setTell(p.tells.eta, running && job.etaSec != null ? fmtSeconds(job.etaSec) : '--', running && job?.etaSec != null);
-      // Batch ETA is hidden entirely on a job that is not a batch — the same rule the rack card
-      // follows, and the reason is the same: one dead entry beside three live ones reads as broken.
-      p.tells.jobeta.item.hidden = jobEta == null;
-      setTell(p.tells.jobeta, jobEta != null ? fmtSeconds(jobEta) : '--', jobEta != null);
-      setTell(p.tells.queue, queue != null ? String(queue) : '--', !!queue);
     }
 
     // ── LED banks ──

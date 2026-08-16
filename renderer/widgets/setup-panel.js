@@ -54,6 +54,8 @@
       'Copy the whole folder into your ComfyUI custom_nodes directory.',
       'Restart ComfyUI. Its log will print "comfyuiWATCHER progress relay installed".',
       'Repeat for every ComfyUI host you watch. Training hosts (ai-toolkit) need none of this.',
+      'Bonus: the same folder adds five "Watcher" nodes to ComfyUI\'s node menu — step, rate, '
+      + 'elapsed and ETA drawn on the canvas itself, in whichever face you like.',
     ]) {
       const li = document.createElement('li');
       li.textContent = t;

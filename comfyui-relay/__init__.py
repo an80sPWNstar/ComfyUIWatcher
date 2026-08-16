@@ -196,5 +196,80 @@ try:
 except Exception:
     logging.exception("comfyuiWATCHER relay failed to install /watcher/host_info")
 
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
+# ── The watcher canvas nodes (added 2026-08-15) ──
+# FIVE DISPLAY-ONLY NODES, one per face. They have no inputs and no outputs, so ComfyUI's executor
+# never runs them and they can never affect a graph. Everything they show is drawn by
+# web/watcher-steps.js from the WebSocket messages the page is already receiving — the Python side
+# exists only to put them in the node menu and to get WEB_DIRECTORY served.
+#
+# All five show the SAME four facts (step, rate, elapsed, ETA) and differ only in presentation, the
+# way the widget's skins do. Pick by taste; drop more than one on a canvas if you want.
+#
+# The relay above is what makes them useful for FOREIGN jobs (queued from the watcher widget or any
+# other client): without it, ComfyUI targets execution messages at the submitter alone and a node
+# honestly reads N/A. Jobs queued from the page the node is sitting on need no relay at all.
+#
+# THE KEYS MUST MATCH `FACES` IN web/face.js. A name in one and not the other is a node that
+# registers and then draws nothing at all, with no error anywhere to say why.
+#
+# EVERY node carries a `style` widget (rack / glass) added by the JS side, so the look is switched
+# in place rather than by swapping the node — a style that were its own node type would cost you
+# every wire on the canvas each time you changed your mind.
+_VRAM_BLURB = (
+    " Plus VRAM for the GPU(s) this workflow actually uses: the devices its nodes select, or "
+    "ComfyUI's own device when the graph does not choose one."
+)
+_WATCHER_LAYOUTS = {
+    "WatcherStepsWells": ("Four Wells", "Step, rate, elapsed and ETA in four wells."),
+    "WatcherStepsPlate": ("Plate", "Big steps-remaining readout with rate, elapsed and ETA underneath."),
+    "WatcherStepsBar": ("Bar", "Progress bar with the step count inside it; rate, elapsed and ETA below."),
+    "WatcherStepsTrace": ("Trace", "Steps and rate plus 60 seconds of measured rate history."),
+}
+_WATCHER_FACES = {}
+for _node_id, (_title, _blurb) in _WATCHER_LAYOUTS.items():
+    _WATCHER_FACES[_node_id] = (f"Watcher · {_title}", _blurb)
+    _WATCHER_FACES[_node_id + "Vram"] = (f"Watcher · {_title} + VRAM", _blurb + _VRAM_BLURB)
+_WATCHER_FACES["WatcherVram"] = (
+    "Watcher · VRAM",
+    "VRAM for the GPU(s) this workflow actually uses — the devices its nodes select, or ComfyUI's "
+    "own device when the graph does not choose one. Works on ROCm as well as CUDA.",
+)
+# The other half of the same question. The scoped node answers 'what is this job filling up'; this
+# one answers 'what is this box doing', which is what you want when something ELSE is on the cards.
+_WATCHER_FACES["WatcherVramAll"] = (
+    "Watcher · VRAM (All GPUs)",
+    "VRAM for every GPU ComfyUI can see, whether or not this workflow uses it.",
+)
+
+
+def _make_watcher_node(node_id, description):
+    """One display-only class per face. Built in a loop so a new face is one line, not one class."""
+
+    class _WatcherFaceNode:
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {"required": {}}
+
+        RETURN_TYPES = ()
+        FUNCTION = "noop"
+        CATEGORY = "comfyuiWATCHER"
+        DESCRIPTION = description
+
+        def noop(self):
+            return ()
+
+    _WatcherFaceNode.__name__ = node_id
+    _WatcherFaceNode.__qualname__ = node_id
+    return _WatcherFaceNode
+
+
+NODE_CLASS_MAPPINGS = {
+    node_id: _make_watcher_node(node_id, description)
+    for node_id, (_display, description) in _WATCHER_FACES.items()
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    node_id: display for node_id, (display, _description) in _WATCHER_FACES.items()
+}
+WEB_DIRECTORY = "./web"
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

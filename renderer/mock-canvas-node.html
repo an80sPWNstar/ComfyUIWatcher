@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>comfyuiWATCHER — canvas node pack</title>
+<style>
+  /* The node ships its own copies of these under comfyui-relay/web/fonts/ and registers them under
+     these two family names; the mock points the same names at the repo's originals so the faces
+     render here exactly as they do inside ComfyUI. */
+  @font-face { font-family: 'WatcherMono'; src: url('../assets/fonts/ShareTechMono-Regular.ttf') format('truetype'); font-weight: 400; font-display: block; }
+  @font-face { font-family: 'WatcherLegend'; src: url('../assets/fonts/Rajdhani-Medium.ttf') format('truetype'); font-weight: 500; font-display: block; }
+  @font-face { font-family: 'WatcherLegend'; src: url('../assets/fonts/Rajdhani-SemiBold.ttf') format('truetype'); font-weight: 600; font-display: block; }
+
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #1a1a1a; color: #b9b9b9;
+    font: 400 13px/1.5 WatcherLegend, system-ui, sans-serif; letter-spacing: .04em;
+  }
+  #stage {
+    background:
+      radial-gradient(circle at 1px 1px, #2b2b2b 1px, transparent 0) 0 0 / 20px 20px, #1a1a1a;
+    min-height: 100%; padding: 18px 22px 40px; box-sizing: border-box;
+  }
+  h1 { font: 600 15px/1 WatcherLegend, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #8a8a8a; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; color: #6d6d6d; font-size: 12px; max-width: 1100px; }
+  .rowlabel { font: 600 11px/1 WatcherLegend, sans-serif; letter-spacing: .2em; text-transform: uppercase; color: #6d6d6d; margin: 18px 0 8px; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 26px 30px; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { font: 600 11px/1.4 WatcherLegend, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #7d7d7d; margin-top: 8px; max-width: 300px; }
+  figcaption span { display: block; letter-spacing: .04em; text-transform: none; font-weight: 500; color: #5f5f5f; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <h1>ComfyUI canvas node pack</h1>
+  <p class="sub">Ten nodes: four layouts, each with and without a VRAM strip, plus two standalone
+  VRAM nodes (the workflow's cards, and every card). Every one of them wears either style — that is
+  a widget on the node, not a second node. Drawn by the SHIPPED code —
+  <code>comfyui-relay/web/face.js</code> — over a fake LiteGraph frame, and driven by a real
+  <code>JobTracker</code> fed synthetic progress messages (20-step sampler, the bar restarts for
+  each image of a batch, the rate wanders). Last row is the same ten with nothing running.</p>
+  <div class="rowlabel">Rack style — running</div>
+  <div class="wrap" id="wrap"></div>
+  <div class="rowlabel">Glass style — running</div>
+  <div class="wrap" id="wrapGlass"></div>
+  <div class="rowlabel">Finished — the run's last numbers stay put; the ETA well says how it ended</div>
+  <div class="wrap" id="wrap3"></div>
+  <div class="rowlabel">Idle — no job, no step data</div>
+  <div class="wrap" id="wrap2"></div>
+</div>
+
+<script type="module">
+import { FACES, setFontsReady } from '../comfyui-relay/web/face.js';
+import { JobTracker } from '../comfyui-relay/web/job-state.js';
+import { pickDevices, selectedDeviceLabels, allDevices } from '../comfyui-relay/web/devices.js';
+
+// A fake four-card box, answered the way ComfyUI's /system_stats answers: every torch device it
+// can see, primary first.
+const STATS = { devices: [
+  { name: 'NVIDIA GeForce RTX 3090 : cudaMallocAsync', type: 'cuda', index: 0, vram_total: 24 * 1024 ** 3, vram_free: 6.2 * 1024 ** 3 },
+  { name: 'NVIDIA GeForce RTX 3060', type: 'cuda', index: 1, vram_total: 12 * 1024 ** 3, vram_free: 1.1 * 1024 ** 3 },
+  { name: 'NVIDIA Tesla P100', type: 'cuda', index: 2, vram_total: 16 * 1024 ** 3, vram_free: 15.4 * 1024 ** 3 },
+  { name: 'cpu', type: 'cpu', index: null, vram_total: 64 * 1024 ** 3, vram_free: 30 * 1024 ** 3 },
+] };
+// Running row: a MultiGPU loader pins cuda:1. Idle row: nothing pinned, so only ComfyUI's own card.
+const GPU_RUNNING = pickDevices(STATS, selectedDeviceLabels([{ mode: 0, values: [{ name: 'device', value: 'cuda:1' }] }]));
+const GPU_IDLE = pickDevices(STATS, []);
+// The All-GPUs node ignores the selection: every card on the box, whatever the graph is doing.
+const GPU_ALL = allDevices(STATS);
+
+const TITLE_H = 30;
+const NOTES = {
+  WatcherStepsWells: 'The one in the app: four recessed wells, silkscreen labels, no bar.',
+  WatcherStepsPlate: 'Hero steps-remaining; step/elapsed/ETA in a strip; progress as a hairline on the node edge.',
+  WatcherStepsBar:   'The body IS the progress bar; rate, elapsed and ETA underneath. Shortest node.',
+  WatcherStepsTrace: 'Steps and rate plus 60 s of measured rate history. The pen lifts on a stall.',
+  WatcherVramAll: 'Every card ComfyUI can see, whatever the workflow is using. For when something else is on the GPUs.',
+  WatcherVram: 'Standalone. Shows the card(s) the workflow selects — here a MultiGPU node pins cuda:1. Nothing pinned → ComfyUI\'s own device only (idle row).',
+};
+
+// ── the LiteGraph chrome around the face (mock only — ComfyUI draws this itself) ──
+function rrect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawFrame(ctx, w, h, title, lit) {
+  ctx.clearRect(0, 0, w, h + TITLE_H);
+  ctx.fillStyle = '#303030'; rrect(ctx, 0, 0, w, TITLE_H + 12, 6); ctx.fill();
+  ctx.fillStyle = '#353535'; rrect(ctx, 0, TITLE_H, w, h, 6); ctx.fill();
+  ctx.fillRect(0, TITLE_H, w, 8);
+  ctx.strokeStyle = lit ? 'rgba(255,182,72,.45)' : '#4e4e4e'; ctx.lineWidth = 1;
+  rrect(ctx, .5, .5, w - 1, TITLE_H + h - 1, 6); ctx.stroke();
+  ctx.fillStyle = lit ? '#ffb648' : '#999';
+  ctx.beginPath(); ctx.arc(15, TITLE_H / 2, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#cfcfcf'; ctx.font = '600 13px WatcherLegend, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(title, 28, TITLE_H / 2 + 1);
+  ctx.fillStyle = '#6c6c6c';
+  ctx.beginPath(); ctx.arc(10, TITLE_H + 20, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ── a fake server: real JobTracker, synthetic messages ─────────────────────
+const job = new JobTracker();
+const idle = new JobTracker();
+// A run that ENDED. What a node looks like when you come back to the machine is as much a state as
+// what it looks like mid-job, and it is the one the numbers have to survive into: steps, rate and
+// elapsed all hold at their last measured values, and the fourth well stops pretending to be an ETA.
+const done = new JobTracker();
+{
+  const t0 = Date.now() - 8 * 60000;
+  done.onExecutionStart({ prompt_id: 'done' }, t0);
+  done.onProgress({ value: 1, max: 192, node: '9', prompt_id: 'done' }, t0 + 1000);
+  done.onProgress({ value: 192, max: 192, node: '9', prompt_id: 'done' }, t0 + 456000); // ~2.4 s/it
+  done.onExecutionEnd('success', { prompt_id: 'done' }, t0 + 456000);
+}
+let rate = 1.4, step = 0, acc = 0, t = performance.now();
+job.onExecutionStart({ prompt_id: 'mock' }, Date.now());
+function tick() {
+  const now = performance.now();
+  const dt = Math.min(0.1, (now - t) / 1000); t = now;
+  rate = Math.max(0.35, Math.min(6, rate + (Math.random() - 0.5) * 0.25));
+  acc += dt * rate;
+  while (acc >= 1) {
+    acc -= 1; step++;
+    if (step > 20) step = 1;                       // next image of the batch: the bar restarts
+    job.onProgress({ value: step, max: 20, node: '9', prompt_id: 'mock' }, Date.now());
+  }
+}
+
+// Every node carries one combo widget (style). LiteGraph draws it in a strip at the top of the
+// body and the face sits below it — the mock reserves the same strip so these are real heights.
+const WIDGET_H = 30;
+function drawWidgetRow(ctx, w, y, value) {
+  ctx.fillStyle = '#4a4a4a';
+  rrect(ctx, 14, y + 4, w - 28, 20, 10);
+  ctx.fill();
+  ctx.fillStyle = '#dcdcdc';
+  ctx.font = '400 11px WatcherLegend, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('style', 24, y + 14);
+  ctx.textAlign = 'right';
+  ctx.fillText(value, w - 24, y + 14);
+  ctx.textBaseline = 'alphabetic';
+}
+
+function mount(container, tracker, gpu, style) {
+  return Object.entries(FACES).map(([id, face]) => {
+    const fig = document.createElement('figure');
+    const cv = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    const g = face.allDevices ? GPU_ALL : gpu;
+    const faceH = face.heightFor ? face.heightFor({ gpu: g, style }) : face.h;
+    const H = faceH + WIDGET_H + TITLE_H;
+    cv.width = face.w * dpr; cv.height = H * dpr;
+    cv.style.width = face.w + 'px'; cv.style.height = H + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const cap = document.createElement('figcaption');
+    cap.innerHTML = face.title + '<span>' + (NOTES[id] || NOTES[id.replace(/Vram$/, '')] || '') + '</span>';
+    fig.append(cv, cap);
+    container.append(fig);
+    return { id, face, ctx, tracker, gpu: g, faceH, style };
+  });
+}
+
+const panels = [
+  ...mount(document.getElementById('wrap'), job, GPU_RUNNING, 'rack'),
+  ...mount(document.getElementById('wrapGlass'), job, GPU_RUNNING, 'glass'),
+  ...mount(document.getElementById('wrap3'), done, GPU_IDLE, 'rack'),
+  ...mount(document.getElementById('wrap2'), idle, GPU_IDLE, 'rack'),
+];
+
+function frame() {
+  tick();
+  const now = Date.now();
+  for (const p of panels) {
+    const snap = { ...p.tracker.snapshot(now), gpu: p.gpu, style: p.style };
+    // The face is drawn in the node's own space: title bar above, widget strip above that.
+    drawFrame(p.ctx, p.face.w, p.faceH + WIDGET_H, 'Watcher · ' + p.face.title, snap.running);
+    drawWidgetRow(p.ctx, p.face.w, TITLE_H, p.style);
+    p.ctx.save();
+    p.ctx.translate(0, TITLE_H + WIDGET_H);
+    p.face.draw(p.ctx, p.face.w, p.faceH, snap);
+    p.ctx.restore();
+  }
+  requestAnimationFrame(frame);
+}
+
+document.fonts.ready.then(() => { setFontsReady(true); });
+Promise.all([
+  document.fonts.load('400 20px WatcherMono'),
+  document.fonts.load('600 12px WatcherLegend'),
+]).then(() => { setFontsReady(true); requestAnimationFrame(frame); });
+</script>
+</body>
+</html>

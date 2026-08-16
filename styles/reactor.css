@@ -132,8 +132,16 @@ body.layout-reactor.size-large { --card-min: 660px; }
   box-shadow: 0 0 10px var(--lit);
 }
 
+/* ── TYPE SCALE ──
+   Everything on the panel went up about a quarter on 2026-08-16 (Bryan, off a screenshot of two
+   live modules): at desk distance the silkscreen and the small readouts were guesswork. The four
+   boxes in the middle column — STEPS LEFT, ETA, ELAPSED, QUEUE — are the ONE exception and are
+   deliberately left where they are; they were sized the night before and are the reference the rest
+   of the panel is now closer to. Do not "harmonise" them back down.
+   The annunciator breakpoint below moved with the tile text: bigger words need the two-row bank
+   sooner, or "NO STEP DATA" wraps inside its tile. */
 .p-unit {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.2em;
   color: var(--p-dim);
@@ -141,7 +149,7 @@ body.layout-reactor.size-large { --card-min: 660px; }
 }
 
 .p-name {
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -156,7 +164,7 @@ body.layout-reactor.size-large { --card-min: 660px; }
 
 .p-mode {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--lit);
   flex: none;
   max-width: 40%;
@@ -166,7 +174,7 @@ body.layout-reactor.size-large { --card-min: 660px; }
 }
 
 .p-hstat {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -191,7 +199,7 @@ body.layout-reactor.size-large { --card-min: 660px; }
   text-align: center;
   padding: 5px 3px 4px;
   border-radius: 2px;
-  font-size: 8.5px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -258,7 +266,18 @@ body.layout-reactor.size-large { --card-min: 660px; }
    the counters that used to have their own full-width row now live in that space, which both fills
    it and removes a row from the panel. */
 .p-stack {
-  flex: 1.35 1 0;
+  flex: 1.5 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The third column: cycle movement on top of the build-info windows (Bryan's arrangement,
+   2026-08-15). Moving the movement here is what freed the middle column for STEPS LEFT + ETA at a
+   size that can be read across a desk. */
+.p-side {
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -286,7 +305,7 @@ body.layout-reactor.size-large { --card-min: 660px; }
 .p-cap {
   display: block;
   text-align: center;
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -318,7 +337,7 @@ svg.p-svg {
 .pan--console .m-face { fill: none; stroke: none; }
 .m-tick { stroke: color-mix(in srgb, var(--p-glass-ink) 45%, transparent); stroke-width: 1; }
 .m-tick--maj { stroke: var(--p-glass-ink); stroke-width: 1.6; }
-.m-lab { fill: var(--p-glass-ink); font-family: 'Share Tech Mono', monospace; font-size: 7.5px; text-anchor: middle; }
+.m-lab { fill: var(--p-glass-ink); font-family: 'Share Tech Mono', monospace; font-size: 9px; text-anchor: middle; }
 .m-needle { stroke: #C2352A; stroke-width: 2; stroke-linecap: round; }
 .m-hub { fill: #8E2B22; }
 
@@ -350,7 +369,7 @@ svg.p-svg {
 .m-nosig {
   fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent);
   font-family: 'Share Tech Mono', monospace;
-  font-size: 7px;
+  font-size: 8.5px;
   letter-spacing: 0.2em;
   text-anchor: middle;
   visibility: hidden;
@@ -394,7 +413,7 @@ svg.p-svg {
 .t-cap {
   fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent);
   font-family: 'Share Tech Mono', monospace;
-  font-size: 8.5px;
+  font-size: 10.5px;
   letter-spacing: 0.1em;
   text-anchor: middle;
 }
@@ -402,7 +421,7 @@ svg.p-svg {
 .t-cap--end {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.14em;
 }
 
@@ -414,17 +433,32 @@ svg.p-svg {
 .t-half--rest .t-needle { opacity: 0.16; filter: none; }
 
 /* The figure between the movements: the one thing a pair of needles cannot tell you. */
-.t-read { fill: var(--lit); font-family: 'Share Tech Mono', monospace; font-size: 19px; text-anchor: middle; }
+.t-read { fill: var(--lit); font-family: 'Share Tech Mono', monospace; font-size: 23px; text-anchor: middle; }
 .t-read-unit {
   fill: color-mix(in srgb, var(--lit) 75%, transparent);
   font-family: 'Share Tech Mono', monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-anchor: middle;
 }
 
 .p-inst--nosig .t-read { fill: var(--p-dim); }
 .p-inst--nosig .t-read-unit { fill: transparent; }
+
+/* THE READING IS PRINTED ON THE FACE, SO IN THE CONTROL ROOM IT IS INK, NOT LIGHT. `--lit` is an
+   amber lamp colour chosen to glow against dark metal; laid on the ivory face it is a pale orange on
+   cream and the figure — the one number the whole instrument exists to give — was the hardest thing
+   on the panel to read (Bryan, 2026-08-16). Mixing it down to a dark tint keeps the state signal
+   (amber running, jade done, red fault) while giving it the contrast printed ink has. The console
+   idiom is untouched: its face is glass and the figure there IS light. */
+.pan--room .t-read { fill: color-mix(in srgb, var(--lit) 40%, #140F09); }
+.pan--room .t-read-unit {
+  fill: color-mix(in srgb, var(--lit) 40%, #140F09);
+  fill-opacity: 0.72;
+}
+/* Needs the extra class to beat the room rule above, which would otherwise repaint a resting
+   readout as though it were a measurement. */
+.pan--room .p-inst--nosig .t-read { fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent); }
 
 /* ── Step counter ──
    Fixed-width mechanisms with leading zeros: a counter has a wheel in every position and is always
@@ -594,6 +628,8 @@ svg.p-svg {
 
 .p-counts .p-cap { margin-top: 2px; }
 
+.p-counts--single { grid-template-columns: 1fr; }
+
 .p-count {
   background: #0B0D0F;
   border: 1px solid rgba(0, 0, 0, 0.6);
@@ -611,7 +647,7 @@ svg.p-svg {
 
 .p-count-val {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 15px;
+  font-size: 18px;
   color: var(--lit);
   text-shadow: 0 0 7px color-mix(in srgb, var(--lit) 55%, transparent);
 }
@@ -624,7 +660,7 @@ svg.p-svg {
    longest strings on the panel ("2.13.0", "581.15"). */
 .p-count-val--static {
   color: var(--p-ink);
-  font-size: 13px;
+  font-size: 15.5px;
   text-shadow: none;
 }
 
@@ -632,7 +668,9 @@ svg.p-svg {
    trap that left a permanent "BATCH ETA --" on every rack card (main.css:844). A window with nothing
    knowable behind it must actually disappear. */
 .p-count-wrap[hidden],
-.p-tell-item[hidden] { display: none; }
+/* An author `display` beats the UA's [hidden] rule, so anything given a display value here needs
+   its own hidden case — this is the trap that left a permanent "BATCH ETA --" on the rack card. */
+.p-count-wrap[hidden] { display: none; }
 
 /* ── Rate recorder ── */
 .p-chart {
@@ -663,7 +701,7 @@ svg.p-svg {
 .c-lab {
   position: absolute;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 8px;
+  font-size: 9.5px;
   letter-spacing: 0.06em;
   color: var(--p-dim);
   pointer-events: none;
@@ -708,8 +746,8 @@ svg.p-svg {
 .p-led-row--off { display: none; }
 
 .p-led-cap {
-  flex: 0 0 74px;
-  font-size: 8px;
+  flex: 0 0 88px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -833,49 +871,90 @@ svg.p-svg {
 
 .p-led-txt {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--p-dim);
   flex: none;
-  min-width: 96px;
+  min-width: 112px;
   text-align: right;
 }
 
 .p-led-row--live .p-led-txt { color: var(--lit); }
 
-/* ── Tell-tale line ──
-   The live job figures in one strip: label in silkscreen, value in the mono face, lit while the
-   figure is real. It costs ~18px where the four windows cost 83, which is the whole reason the
-   build info could take the windows without the panel losing its ETA. */
-.p-tell {
+/* ── ETA window ──
+   The same well and the same weight as STEPS LEFT above it: those are the two questions a watcher
+   is actually asked, and they now read as a pair. This replaced an 11.5px tell-tale strip that was
+   unreadable at desk distance (Bryan, 2026-08-15).
+
+   Mono glyphs rather than the counter mechanism: a split-flap wheel holds one character per
+   position and "8m39s" is not a number — five wheels showing letters is not a thing any counter
+   does. Same scale, honest construction. */
+.p-inst--time {
+  flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-  padding: 2px 2px 7px;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.p-tell-item {
+.p-timewin {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0 2px;
+  min-height: 44px;
 }
 
-.p-tell-lab {
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--p-dim);
-}
-
-.p-tell-val {
+.p-timeval {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11.5px;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: 0.02em;
   color: var(--lit);
-  text-shadow: 0 0 6px color-mix(in srgb, var(--lit) 45%, transparent);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--lit) 45%, transparent);
 }
 
-.p-tell-val--dim { color: var(--p-dim); text-shadow: none; }
+/* Nothing to report is dim ink and no glow — a resting readout must never look like a measurement,
+   the same rule the needles and the counter follow. */
+.p-timewin--dim .p-timeval {
+  color: var(--p-dim);
+  text-shadow: none;
+}
+
+/* ── Medium readouts ──
+   Elapsed / Queue / Batch ETA under the ETA well. Half its size, still three times the strip they
+   replaced. Batch ETA hides on a job that is not a batch, and the row reflows. */
+.p-minis {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.p-mini {
+  min-width: 0;
+  background: #0B0D0F;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 2px;
+  padding: 4px 6px 3px;
+  text-align: center;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.75);
+}
+
+.p-mini[hidden] { display: none; }
+
+.p-mini-val {
+  display: block;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 17px;
+  line-height: 1.1;
+  color: var(--lit);
+  text-shadow: 0 0 7px color-mix(in srgb, var(--lit) 40%, transparent);
+}
+
+.p-mini-val--dim { color: var(--p-dim); text-shadow: none; }
+
+.p-mini .p-cap { margin-top: 1px; }
+
+.pan--console .p-mini { border-radius: 6px; }
 
 /* ── Identity plate ── */
 /* One row, four slots: the two long values (model, process) take the free width and the two short
@@ -897,7 +976,7 @@ svg.p-svg {
 
 .p-plate-lab {
   display: block;
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -907,7 +986,7 @@ svg.p-svg {
 .p-plate-val {
   display: block;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11.5px;
+  font-size: 14px;
   color: var(--p-ink);
   white-space: nowrap;
   overflow: hidden;
@@ -921,7 +1000,7 @@ svg.p-svg {
 .pan--blank .p-row,
 .pan--blank .p-chart,
 .pan--blank .p-counts,
-.pan--blank .p-tell,
+.pan--blank .p-side,
 .pan--blank .p-leds,
 .pan--blank .p-plate { display: none; }
 
@@ -934,7 +1013,7 @@ svg.p-svg {
 /* Two rows of four annunciators once eight across would be unreadable. This is a wider breakpoint
    than the layout one below: the tiles run out of room for their words long before the instruments
    run out of room to sit abreast. */
-@container (max-width: 620px) {
+@container (max-width: 760px) {
   .p-ann { grid-template-columns: repeat(4, 1fr); }
 }
 
@@ -942,6 +1021,7 @@ svg.p-svg {
   .p-row { flex-wrap: wrap; }
   .p-inst--rate { flex: 1 0 100%; }
   .p-stack { flex: 1 1 0; }
+  .p-side { flex: 1 1 0; }
   .p-counts { grid-template-columns: repeat(2, 1fr); }
   .p-plate { grid-template-columns: minmax(0, 1fr) auto auto; }
   .p-plate-row:last-child { grid-column: 1 / -1; }

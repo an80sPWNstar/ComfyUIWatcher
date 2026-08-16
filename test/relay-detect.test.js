@@ -21,10 +21,21 @@ function makeClient() {
   assert.strictEqual(client._relayState(), null, 'no verdict in the first seconds of a job');
 }
 
-// A job has been running well past the grace period with no watcher.* message: relay is missing.
+// A MINUTE OF SILENCE IS NOT PROOF. The relay only speaks when ComfyUI does, and a MiniMax-H3
+// sampler emits one progress message every 20-30 seconds — with the old 10s grace period a
+// verifiably-working relay on Secondary was reported missing (2026-08-15: a WS tap saw
+// watcher.progress while the panel said "no relay"). The grace period must clear the slowest step
+// time on the rack, which is exactly the job this widget exists to watch.
 {
   const client = makeClient();
   client._firstJobSeenAtMs = Date.now() - 60000;
+  assert.strictEqual(client._relayState(), null, 'a slow video sampler has not proven anything at 60s');
+}
+
+// Silent well past the grace period with no watcher.* message: relay is missing.
+{
+  const client = makeClient();
+  client._firstJobSeenAtMs = Date.now() - 120000;
   assert.strictEqual(client._relayState(), false, 'silent through a whole job means no relay');
 }
 

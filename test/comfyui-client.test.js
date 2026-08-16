@@ -39,6 +39,58 @@ function makeClient() {
   assert.strictEqual(client.currentJob.etaSec, null);
 }
 
+// _etaSec drains BETWEEN steps. Same three cases the canvas node's job-state.js is pinned on
+// (test/watcher-node.test.js) — the two implementations are required to agree, so if one moves the
+// other must. Fields are set directly rather than driven through _onProgress for the reason given
+// at the top of this file: _onProgress stamps its own Date.now() and the drain is measured against
+// that stamp.
+{
+  const client = makeClient();
+  // 20-step job, 1 it/s, step 1 just landed => 19 steps left.
+  client.currentJob = { stepsPerSec: 1, etaAtStepSec: 19, etaStepAtMs: Date.now() };
+  assert.ok(Math.abs(client._etaSec() - 19) < 0.05, `at the step, 19s; got ${client._etaSec()}`);
+
+  client.currentJob.etaStepAtMs = Date.now() - 500;
+  assert.ok(Math.abs(client._etaSec() - 18.5) < 0.05, `half a step in, 18.5s; got ${client._etaSec()}`);
+
+  // A STALL HOLDS at the whole steps remaining instead of counting on to zero — the in-flight
+  // term floors, so a job that stopped stepping never promises a finish that is not coming.
+  client.currentJob.etaStepAtMs = Date.now() - 5000;
+  assert.ok(Math.abs(client._etaSec() - 18) < 0.05, `stalled holds at 18s; got ${client._etaSec()}`);
+}
+
+// No measured rate, or no recorded figure to drain, is null — never a fabricated countdown.
+{
+  const client = makeClient();
+  client.currentJob = { stepsPerSec: null, etaAtStepSec: 19, etaStepAtMs: Date.now() };
+  assert.strictEqual(client._etaSec(), null, 'no rate means no ETA');
+  client.currentJob = { stepsPerSec: 1, etaAtStepSec: null, etaStepAtMs: Date.now() };
+  assert.strictEqual(client._etaSec(), null, 'no recorded ETA means no ETA');
+  client.currentJob = null;
+  assert.strictEqual(client._etaSec(), null, 'no job means no ETA');
+}
+
+// The DRAINED figure has to reach the renderer, not the one frozen at the last step. _emit()'s
+// currentJob payload is an explicit whitelist, which is exactly how `media` was computed correctly
+// and never shown (2026-08-14) — assert on the emitted snapshot, not on client.currentJob.
+{
+  let snap = null;
+  const client = new ComfyUIClient({ name: 'test', url: 'http://127.0.0.1:1' }, (_h, s) => { snap = s; });
+  client.currentJob = {
+    promptId: 'p1', step: 1, maxSteps: 20,
+    stepsPerSec: 1, etaAtStepSec: 19, etaStepAtMs: Date.now() - 500,
+  };
+  client._emit();
+  assert.ok(Math.abs(snap.currentJob.etaSec - 18.5) < 0.05,
+    `emitted ETA must be the drained one, got ${snap.currentJob.etaSec}`);
+
+  // A finished job has no ETA at all, drain or no drain.
+  client.currentJob.finished = 'success';
+  client.currentJob.finishedAtMs = Date.now();
+  client._emit();
+  assert.strictEqual(snap.currentJob.etaSec, null, 'a finished job emits no ETA');
+}
+
 // executing with node:null must NOT blank the UI on an ordinary gap between nodes — only once
 // execution_success/error has actually marked the job finished.
 {
@@ -326,22 +378,46 @@ function makeClient() {
 // image, all under one prompt_id. The window must be thrown away when the bar restarts, or the
 // stale high values make the delta negative and the rate reads null for most of every image —
 // which is what "the dial only registers with 2 steps left" was.
+// THE CLOCK IS STUBBED HERE ON PURPOSE. Driven by the real one, the 8-step loop below runs inside
+// a millisecond or two, so whether a rate exists at all depends on machine load — and the version
+// of this test that asserted `stepsPerSec === null` after the restart was passing for the wrong
+// reason (no interval, so no rate had ever been measured) and failed roughly 1 run in 10 under a
+// parallel suite, reporting 1000 it/s from a 1ms interval.
 {
   const client = makeClient();
-  for (let v = 1; v <= 8; v++) client._onProgress({ value: v, max: 8, prompt_id: 'p1', node: '9' });
-  assert.ok(client._progressHistory.length >= 2, 'a run of steps builds a window');
+  let t = 1_000_000;
+  const origNow = Date.now;
+  Date.now = () => t;
+  try {
+    for (let v = 1; v <= 8; v++) {
+      client._onProgress({ value: v, max: 8, prompt_id: 'p1', node: '9' });
+      t += 4000; // 4s per step => 0.25 it/s
+    }
+    assert.ok(client._progressHistory.length >= 2, 'a run of steps builds a window');
+    assert.ok(Math.abs(client.currentJob.stepsPerSec - 0.25) < 0.01,
+      `8 steps at 4s each is 0.25 it/s, got ${client.currentJob.stepsPerSec}`);
 
-  client._onProgress({ value: 1, max: 8, prompt_id: 'p1', node: '9' });
-  assert.strictEqual(client._progressHistory.length, 1, 'a restarted bar starts a fresh window');
-  assert.strictEqual(client._progressHistory[0].value, 1);
-  assert.strictEqual(client.currentJob.stepsPerSec, null, 'no rate from one sample after a restart');
+    client._onProgress({ value: 1, max: 8, prompt_id: 'p1', node: '9' });
+    assert.strictEqual(client._progressHistory.length, 1, 'a restarted bar starts a fresh window');
+    assert.strictEqual(client._progressHistory[0].value, 1);
+    // The WINDOW is emptied, the RATE is not: the next image is the same work at the same size on
+    // the same model, and blanking the figure for one step in every item is what used to make the
+    // meter's backlight flicker through a batch run.
+    assert.ok(Math.abs(client.currentJob.stepsPerSec - 0.25) < 0.01,
+      `the measured rate is held across an item boundary, got ${client.currentJob.stepsPerSec}`);
+    // ...and so is the ETA, which reads the held rate. It used to read the fresh estimate, which is
+    // null here, so ETA blanked for one step of every item while RATE beside it kept reading.
+    assert.ok(Math.abs(client.currentJob.etaSec - 28) < 0.1,
+      `7 steps left at 0.25 it/s is 28s, got ${client.currentJob.etaSec}`);
 
-  // ...and the very next step gives a rate again, rather than waiting for the old samples to age
-  // out of the window.
-  client._progressHistory[0].atMs -= 4000; // pretend that step took 4s
-  client._onProgress({ value: 2, max: 8, prompt_id: 'p1', node: '9' });
-  const rate = client.currentJob.stepsPerSec;
-  assert.ok(rate > 0.2 && rate < 0.3, `expected ~0.25 it/s one step into the new image, got ${rate}`);
+    // ...and the very next step measures again, rather than waiting for old samples to age out.
+    t += 4000;
+    client._onProgress({ value: 2, max: 8, prompt_id: 'p1', node: '9' });
+    const rate = client.currentJob.stepsPerSec;
+    assert.ok(rate > 0.2 && rate < 0.3, `expected ~0.25 it/s one step into the new image, got ${rate}`);
+  } finally {
+    Date.now = origNow;
+  }
 }
 
 // A different node is a different progress bar (a tiled VAE decode has its own max) — splicing

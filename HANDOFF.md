@@ -555,3 +555,162 @@ interpret the rate recorder. Both addressed, verified in the mock and the real a
 - renderer/mock-sample-dial.html is committed as the design record for the range decision. Faces C
   (100 s/it - 2 it/s) and D (s/it only) were rejected: both peg an image job.
 - Backlog unchanged: window state persistence + tray, a UI for EDITING a host, other trainers.
+
+## 2026-08-15 15:20 -- ComfyUI canvas node pack (built, NOT installed, NOT committed)
+
+- NEW: `comfyui-relay/` now registers SIX display-only canvas nodes (it was a pure send_sync shim).
+  `web/job-state.js` (tracking + rate maths), `web/devices.js` (which GPU a workflow uses),
+  `web/face.js` (all faces, pure canvas), `web/watcher-steps.js` (the only file importing ComfyUI),
+  `web/fonts/` (ttf copies), `web/package.json` (type:module, so node can test the ES modules).
+- Faces: Four Wells (Bryan picked it), Plate, Bar, Trace, Glass (dome), VRAM.
+- VRAM node shows ONLY the card(s) the graph selects: MultiGPU `device` widgets name "cuda:1" etc;
+  nothing named -> /system_stats devices[0], and the face prints WHICH rule applied. Verified
+  against the real source on New Main: its /system_stats reports EVERY torch device, primary first,
+  and comfyui-multigpu is installed there.
+- Judging surface: `renderer/mock-canvas-node.html`, which imports the SHIPPED face.js — a face
+  cannot drift from what the mock shows. Serve with `npx http-server . -c-1` (default caching
+  serves a stale module and you will chase a fixed bug).
+- `test/watcher-node.test.js`: 5 test files pass. Face tests use a recording 2D context.
+- NOT DONE, needs Bryan: copy comfyui-relay/ into BOTH installs' custom_nodes/ and restart ComfyUI
+  (kills any running job) — nothing here has run inside a real ComfyUI yet. Not committed either.
+
+## 2026-08-15 15:50 -- node pack: 9 nodes, style is a WIDGET, VRAM strip, ROCm
+
+- Restructured: LAYOUT (Wells/Plate/Bar/Trace/VRAM) and STYLE (rack/glass) are separate axes.
+  Style is a serialised `style` combo widget on every node, NOT a node type -- switching a look must
+  never cost the wires/position of a node already on a canvas. Old `WatcherStepsGlass` node is gone;
+  it is now Plate + style=glass.
+- 9 node types: 4 layouts x {plain, +VRAM} + standalone WatcherVram. Cross-checked FACES keys
+  against NODE_CLASS_MAPPINGS by script (a mismatch draws nothing, silently).
+- LiteGraph draws widgets from the TOP of the body and BEFORE onDrawForeground -> the face is
+  translated down by `widgetSpace(node)` and the node grows by it. Do not remove that.
+- ROCm: /system_stats is identical on both stacks (torch's ROCm build labels AMD cards cuda:N), so
+  VRAM + device selection work unchanged. Stack is detected from the pytorch build tag
+  (`acceleratorFromStats`) and printed on the standalone node. NEVER VERIFIED on a real AMD box.
+- Copied into New Main custom_nodes (its ComfyUI has NOT been restarted since -- nodes not loaded
+  yet). Secondary :8189 still down, still has the old relay-only copy.
+- Mock (renderer/mock-canvas-node.html) now renders all 9 in both styles from the shipped face.js.
+
+## 2026-08-15 20:25 -- pack installed on BOTH instances, public README written
+
+- Installed into Secondary too (:8189). Both installs now carry the full pack; NEITHER ComfyUI has
+  been restarted since, so the nodes are not loaded yet on either.
+- Live :8189 /system_stats caught a real bug: device `name` is "cuda:0 NVIDIA GeForce RTX 3090 :
+  cudaMallocAsync" (label in front, allocator behind), so shortDeviceName's split(':')[0] printed
+  the literal string "cuda" beside every card. Fixed + pinned with the real string in the test.
+- comfyui-relay/README.md is now the PUBLIC readme (Bryan's voice, for a Reddit post) with images
+  in comfyui-relay/images/. Dev-facing notes moved to comfyui-relay/DEVNOTES.md.
+- Images are currently renders from the mock (shipped face.js, mock LiteGraph frame), NOT captures
+  from a real canvas. Retake them inside ComfyUI after a restart before publishing.
+- Open question for Bryan: the pack lives in a subfolder of the widget repo, so "Download ZIP" gets
+  the whole widget. A standalone repo is probably wanted before posting.
+
+## 2026-08-15 21:40 -- live ComfyUI testing found four real bugs; reactor panel reworked
+
+Nodes run inside real ComfyUI now (both hosts, all 10 registered, web assets served as
+text/javascript). Bugs found by LOOKING, not by test:
+1. `STEP 0/1` during model load — ComfyUI reports whole-node progress as 0/1 for non-samplers.
+   `steps` now needs max > 1; where there is no step count the face prints the RUNNING NODE'S TITLE
+   (from app.graph, so it is a fact; null for foreign jobs -> N/A).
+2. VRAM always N/A — the device poller never started. `onNodeCreated` fires BEFORE the node joins
+   the graph, so hasVramNode() said no and the poll cancelled itself. First poll is forced now,
+   stopping needs 2 empty ticks, and onDrawForeground re-arms it.
+3. Glass style washed out on a real canvas — palette was tuned on the mock's near-black page;
+   ComfyUI's node body is #353535. The dome now lays a dark smoked tint first; ink alphas raised.
+4. Widget said "no relay" for Secondary while a WS tap saw watcher.progress: RELAY_VERDICT_MS was
+   10s, but an H3 sampler speaks every 20-30s. Now 90s. test/relay-detect.test.js pins both sides.
+
+NOT OUR BUG: node badge on Secondary says `comfyui_fearnworksnodes` for 626 nodes (Crystools, ours,
+everything). That pack's `__init__.py` is `from nodes import *`, which imports ComfyUI's CORE nodes
+module and re-exports its global NODE_CLASS_MAPPINGS; ComfyUI then stamps every class in it with
+that pack's name. Fix is to remove it or make it `from .nodes import *`.
+
+Reactor panel (Bryan: the tell-tale figures were "WAAAAY too small"): ETA promoted to its own well
+under STEPS LEFT at the same weight (mono, not the flap mechanism — "8m39s" is not a number),
+Elapsed/Queue/Batch ETA are medium windows under it, cycle progress moved on top of the build-info
+windows in a new third column (.p-side). Tell-tale strip deleted; TRAIN_WINDOWS is now just Loss.
+Panel measures 482px, was ~500.
+
+## 2026-08-16 00:1x -- picking up after the machine crashed mid-session
+
+The box died around 21:31 last night, 8 minutes after the entry above was written. What was in
+flight, recovered from the working tree, plus the two things it turned up:
+
+- IN FLIGHT AND NOW FINISHED: the DRAINING ETA was ported from the canvas node into the widget
+  collector (`comfyui-client.js` `_etaSec()`, written 21:31, no test, no entry). `stepsLeft / rate`
+  only changes when a step lands, so on a 20-30 s/it video sampler the figure sat frozen for half a
+  minute then jumped. The step in flight is now counted apart from the ones after it and drains at
+  1s per second; it FLOORS at the end of the current step, so a stall holds at the whole steps left
+  rather than promising a finish. Same rule as `comfyui-relay/web/job-state.js` -- change one,
+  change both. 8 new assertions in `test/comfyui-client.test.js` (at-the-step / mid-step / stalled /
+  no-rate / no-job / drained figure reaching the EMITTED snapshot, not just currentJob).
+- REAL BUG FOUND NEXT DOOR, fixed: `etaAtStepSec` was computed from the FRESH rate estimate, which
+  is null on the first step of every batch item because the window was just emptied. The held rate
+  beside it kept reading, so ETA blanked for one step in every item -- the same flicker the
+  hold-the-rate rule exists to stop, in the other well. It reads `currentJob.stepsPerSec` now.
+  Pinned: 7 steps left at 0.25 it/s reads 28s across an item boundary. Pre-existing, not from the
+  ETA work. The canvas node never had it (job-state.js always read its held `_lastRate`).
+- FLAKY TEST FIXED (it is what exposed the above): the batch-restart block drove `_onProgress` off
+  the real clock, so 8 steps landed inside a millisecond or two. It asserted `stepsPerSec === null`
+  after a restart and was passing for the WRONG REASON -- no interval, so no rate had ever been
+  measured. Under a loaded parallel suite a 1ms interval instead measured 1000 it/s and it failed
+  about 1 run in 10. Clock is stubbed now (same pattern the batch-ETA block already used) and it
+  asserts the real rule: the window is emptied, the rate is HELD. Full suite run 12x clean after.
+- Note for anyone reading a rate: `_estimateStepsPerSec` guards `dtSec <= 0` but not "absurdly
+  small" -- two progress messages 1ms apart with different values still publish 1000 it/s. Not seen
+  from a real server (the duplicate case is already deduped by value) and NOT changed here, but it
+  is the same shape as the ai-toolkit cached-row skew that read 0.005 s/it.
+- `status.md` at repo root is DEAD -- dated 2026-08-11, says the app has never been run. HANDOFF.md
+  superseded it. Left in place, gitignored; delete it when Bryan says so.
+- Tree otherwise as the crash left it: 8 modified + 6 untracked (the canvas node pack under
+  `comfyui-relay/web/`, its README/DEVNOTES/images, mock-canvas-node.html, watcher-node.test.js).
+  Still 0.0.7, nothing committed, nothing released. `npm test` 5/5.
+- Unchanged and still open: neither ComfyUI instance has been restarted since the pack was copied in
+  (nodes ARE loaded per the 21:40 entry, so this is only about re-copying if the pack changes); the
+  README images are mock renders, not captures from a real canvas; the pack still lives in a
+  subfolder of this repo and probably wants its own before a Reddit post.
+
+## 2026-08-16 00:2x -- draining ETA VERIFIED LIVE
+
+- Watched against a real job on New Main (:8188), 25-step sampler at 0.0794 it/s (12.6 s/it): ETA
+  read 12.60 at the step and drained 12.60 -> 8.46 over the next ~4 real seconds, one second per
+  second, instead of holding 12.6 until the next step landed. Both hosts had a job running.
+- Checked with a throwaway node script driving the real ComfyUIClient at the collector level, so the
+  running app was not disturbed. App is up (source build, PID 27000).
+
+## 2026-08-16 01:0x -- reactor panel type scale, dark dial ink, canvas node keeps its last numbers
+
+Two asks off screenshots of the running build, both done and looked at:
+
+- TYPE SCALE, reactor panel: everything up about a quarter — header, annunciator tiles, all well
+  captions, dial end words and figure, the build-info windows, recorder labels, bulb-bank captions
+  and counts, identity plate. THE FOUR MIDDLE-COLUMN BOXES (STEPS LEFT / ETA / ELAPSED / QUEUE) ARE
+  DELIBERATELY UNCHANGED -- Bryan sized those the night before and called them fine; they are now
+  the reference the rest of the panel is closer to. Read his "middle column 4 boxes" as those four
+  wells, not the 2x2 build-info grid in the third column, which DID grow.
+  Knock-ons: the annunciator 8-across breakpoint moved 620px -> 760px (bigger words need the two-row
+  bank sooner or "NO STEP DATA" wraps), the bulb caption column 74 -> 88px, its count 96 -> 112px,
+  and the twin-dial baselines moved apart (23-unit figure over an 11-unit word). Panel measures
+  526px at 590 wide, was 482 -- bigger type costs height, and that is the trade he asked for.
+- THE DIAL FIGURE IS INK IN THE CONTROL ROOM, NOT LIGHT. `--lit` is a lamp amber picked to glow on
+  dark metal; on the ivory face it was pale orange on cream and the one number the instrument exists
+  to give was the hardest thing on the panel to read. `.pan--room .t-read` now mixes it to 40% over
+  near-black, which keeps the state signal (amber / jade / red) at printed-ink contrast. The console
+  idiom is untouched -- its face is glass and the figure there IS light. The resting (no-rate) case
+  needs the extra class to beat that rule; it is written, don't collapse the two selectors.
+- CANVAS NODE, a finished run keeps its numbers (`comfyui-relay/web/`): the rate used to blank to N/A
+  the instant a run ended, throwing away the figure the node had just spent the whole job measuring
+  while the step count and elapsed beside it stayed. `snapshot()` now returns the held `_lastRate`
+  whatever the state; `reset()` still clears it, so a new prompt never inherits one.
+- The ETA well RELABELS ITSELF to STATE / FINISHED (or FAILED / STOPPED) once the run ends -- same
+  idiom as the rack card's FRAMES/BATCH SIZE slot. An idle node that has never run keeps the ETA
+  label: there is no end state to report. New `endCell()` in face.js is shared by every layout, so
+  Wells, Plate, Bar and Trace all say it. State words are set in the legend face and fitted to their
+  cell ("FINISHED" is longer than any figure that has ever been in one).
+- `renderer/mock-canvas-node.html` gained a FINISHED row (192/192, 2.38 s/it, 7m36s, STATE FINISHED)
+  -- that is the surface this was judged on, and a state the mock could not show before.
+- NOT COPIED INTO EITHER ComfyUI INSTALL. The web/ files are served per request, so a re-copy plus a
+  browser refresh should be enough for the faces -- no ComfyUI restart, unlike a Python change.
+  Needs Bryan's say-so before writing into D:\ComfyUI_Installs.
+- `npm test` 5/5 (6 new assertions on the held rate and the relabelled well). Still 0.0.7,
+  uncommitted.
