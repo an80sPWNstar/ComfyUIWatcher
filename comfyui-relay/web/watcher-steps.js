@@ -83,12 +83,22 @@ function ensureTicking() {
 // VRAM node is actually on the canvas, and stop the moment the last one is deleted. A watcher that
 // keeps hitting an endpoint for a node nobody has is the kind of thing that gets a node pack
 // blamed for someone's server load.
-const DEVICE_POLL_MS = 2000;
+// 1s, which is what nvidia-smi-based monitors use — at 2s the row visibly trailed guiTOP sitting
+// next to it (Bryan, 2026-08-17). The NVML read behind /watcher/vram costs microseconds and
+// /system_stats is a dictionary lookup, so a second a poll is not a load on anything.
+const DEVICE_POLL_MS = 1000;
+// EXCEPT when the host has no NVML and the relay is shelling out to nvidia-smi for every answer.
+// That is a process spawn, per open tab, and one a second is a real cost for a cosmetic row — a
+// host answering from that path keeps the old cadence. It says which path it used, so this is
+// observed rather than assumed.
+const DEVICE_POLL_SLOW_MS = 2000;
+let devicePollMs = DEVICE_POLL_MS;
 // Both views come out of ONE poll: the cards this workflow will use, and every card on the box.
 // Two nodes asking the same endpoint twice a second for the same JSON would be silly.
 let gpu = { devices: [], source: 'none', error: null };
 let gpuAll = { devices: [], source: 'none', error: null };
-let devicePoll = null;
+let devicePollTimer = null;
+let devicePollActive = false;
 
 function graphDevices() {
   // Flatten LiteGraph's nodes into the shape devices.js understands. Widget VALUES are read, never
@@ -130,20 +140,17 @@ async function driverVram() {
 }
 
 let missTicks = 0;
+/** Returns false when the poller should stop: the last VRAM node is gone. */
 async function pollDevices(force) {
   if (!force) {
-    if (!hasVramNode()) {
-      if (++missTicks >= 2) {
-        clearInterval(devicePoll);
-        devicePoll = null;
-      }
-      return;
-    }
+    if (!hasVramNode()) return ++missTicks < 2;
     missTicks = 0;
   }
   try {
-    const res = await api.fetchApi('/system_stats');
-    const stats = mergeDriverVram(await res.json(), await driverVram());
+    // Concurrently: the row is only as fresh as the slower of the two, and they are independent.
+    const [res, driver] = await Promise.all([api.fetchApi('/system_stats'), driverVram()]);
+    devicePollMs = driver?.source === 'nvidia-smi' ? DEVICE_POLL_SLOW_MS : DEVICE_POLL_MS;
+    const stats = mergeDriverVram(await res.json(), driver);
     const accel = acceleratorFromStats(stats);
     const { labels, splitCount } = graphDevices();
     gpu = { ...pickDevices(stats, labels, splitCount), accel, error: null };
@@ -155,13 +162,31 @@ async function pollDevices(force) {
     gpuAll = { ...gpuAll, error };
   }
   redraw();
+  return true;
+}
+
+/**
+ * A CHAIN, not an interval: the gap has to be changeable (see DEVICE_POLL_SLOW_MS), and an
+ * interval shorter than a slow answer stacks requests on a host that is already struggling.
+ *
+ * `devicePollActive` is what onDrawForeground tests, NOT the timer handle — the handle is null while
+ * a poll is in flight, so testing it would start a second chain on the very next frame, and this is
+ * called from every frame.
+ */
+async function runDevicePoll(force) {
+  devicePollTimer = null;
+  if (!(await pollDevices(force))) {
+    devicePollActive = false;
+    return;
+  }
+  devicePollTimer = setTimeout(() => runDevicePoll(false), devicePollMs);
 }
 
 function ensureDevicePolling() {
-  if (devicePoll) return;
+  if (devicePollActive) return;
+  devicePollActive = true;
   missTicks = 0;
-  pollDevices(true);
-  devicePoll = setInterval(() => pollDevices(false), DEVICE_POLL_MS);
+  runDevicePoll(true);
 }
 
 // ── wiring ─────────────────────────────────────────────────────────────────
