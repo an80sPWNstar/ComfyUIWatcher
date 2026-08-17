@@ -848,3 +848,19 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   window still keys on the RAW id: each expanded child runs its own bar with its own max.
 - JS only -- copied to both installs, no restart needed (hard refresh the tab). npm test 5/5 with
   the real ids from the tap pinned as a case.
+
+## 2026-08-17 12:45 -- v0.0.9 SHIPPED (Windows only)
+- Bryan signed off on Electron 43; `electron-upgrade` merged into `main` (e4bc99f) and both pushed.
+- 0.0.9 released: https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.9 with
+  `comfyuiWATCHER Setup 0.0.9.exe` (100 MB -- E43 is ~21 MB bigger than E31).
+- Contents: today's node pack (NVML VRAM via /watcher/vram, workflow-stage NODE line, subgraph id
+  fix), Electron 31 (EOL) -> 43 + electron-builder 25 -> 26, reactor dial fix.
+- Verified before release: npm test 5/5 on merged main; packaged `resources/comfyui-relay/` hashes
+  match the repo file-for-file (extraResource, so the node pack DOES ship in the exe); win-unpacked
+  exe launched, window title comfyuiWATCHER, ProductVersion 0.0.9.0.
+- LINUX NOT BUILT. wsl.exe still refuses to start (HypervisorPresent=False, HCS_E_HYPERV_NOT_INSTALLED
+  -- re-checked at build time, not assumed). AppImage/deb stay at 0.0.7; the release notes say so.
+  When virtualization is back on: rsync to ~/cw-build, npx electron-builder --linux, upload to the
+  same tag with `gh release upload v0.0.9`.
+- An older 0.0.8 instance was still running alongside the new one at 12:41 (two comfyuiWATCHER
+  processes) -- left alone, it is Bryan's.
