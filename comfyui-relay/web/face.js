@@ -57,6 +57,11 @@ export const THEMES = {
     faint: C.faint,
     pad: 12,
     top: 0,
+    // How far anything drawn UNDER the layout is pulled back up. The rack faceplate runs to the
+    // node's edge and needs no lift; the glass dome's foot is the last stretch of the node and it
+    // carries the progress capsule, so a row printed at the true bottom lands outside the glass,
+    // on top of that capsule.
+    footLift: 0,
     // A glass dome needs air around its content and a foot for its progress capsule; the rack
     // faceplate needs neither, so it adds no height.
     extraH: 0,
@@ -70,6 +75,7 @@ export const THEMES = {
     pad: 24,
     top: 10,
     extraH: 24,
+    footLift: 20,
   },
 };
 export const themeFor = (style) => THEMES[style] || THEMES.rack;
@@ -156,6 +162,55 @@ function fitText(ctx, text, maxW) {
   let cut = text;
   while (cut.length > 1 && ctx.measureText(cut + '…').width > maxW) cut = cut.slice(0, -1);
   return cut + '…';
+}
+
+/**
+ * WHERE IN THE WORKFLOW the run is, which the step count does not say: "STEP 7/20" is a position
+ * inside one node, and a graph spends most of its wall clock in the nodes either side of the
+ * sampler. Counted from the nodes seen executing; the total comes from the relay, so a stock
+ * install shows a bare position rather than a made-up graph size (see JobTracker.stage).
+ *
+ * The NAME is printed here only when the hero readout is not already carrying it: with no step
+ * numbers stepReading() puts the node's own title in the big well, and printing the same words
+ * twice on a 300px node wastes the one row this line gets.
+ */
+export function stageReading(snap) {
+  const stage = snap.stage;
+  if (!stage) return null;
+  return {
+    pos: stage.total ? `${stage.index}/${stage.total}` : `${stage.index}`,
+    name: snap.steps && snap.nodeName ? String(snap.nodeName) : null,
+  };
+}
+
+// One line, under every job layout. 18px buys the answer to "what is it doing right now", which is
+// the second question anyone asks a watcher after "how long left".
+export const STAGE_H = 18;
+
+export function drawStage(ctx, w, y, snap, t) {
+  const pad = t.pad + 2;
+  const baseline = y + 11;
+  const reading = stageReading(snap);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  legend(ctx, 'NODE', pad, baseline, t.faint, 9, '1.4px');
+  let x = pad + 36;
+  if (!reading) {
+    // Nothing has run: a dash, the same as every other unknown on the face.
+    ctx.fillStyle = t.faint;
+    ctx.font = mono(11);
+    ctx.fillText('--', x, baseline);
+    return;
+  }
+  ctx.fillStyle = snap.running ? t.ink : t.dim;
+  ctx.font = mono(11);
+  ctx.fillText(reading.pos, x, baseline);
+  x += ctx.measureText(reading.pos).width + 9;
+  if (reading.name) {
+    ctx.fillStyle = t.dim;
+    ctx.font = legendFont(11, 500);
+    ctx.fillText(fitText(ctx, reading.name, w - pad - x), x, baseline);
+  }
 }
 
 /**
@@ -748,7 +803,7 @@ const LAYOUTS = [
 function makeFace(layout, withVram) {
   const height = (snap) => {
     const t = themeFor(snap?.style);
-    return layout.h + t.extraH + (withVram ? vramStripHeight(snap?.gpu) : 0);
+    return layout.h + t.extraH + STAGE_H + (withVram ? vramStripHeight(snap?.gpu) : 0);
   };
   return {
     id: withVram ? `${layout.id}Vram` : layout.id,
@@ -763,7 +818,11 @@ function makeFace(layout, withVram) {
       // The layout always gets its OWN height, never the node's: a taller node (a second card in
       // the strip) must not stretch the job readouts into it.
       layout.draw(ctx, w, layout.h + t.extraH, snap, t);
-      if (withVram) drawVramStrip(ctx, w, layout.h + t.extraH - (t.glass ? 14 : 0), snap?.gpu, t);
+      // Everything under the layout shares ONE lift (see THEMES.footLift): the stage line and the
+      // VRAM strip are stacked, so lifting one and not the other would put them through each other.
+      const stageY = layout.h + t.extraH - t.footLift;
+      drawStage(ctx, w, stageY, snap, t);
+      if (withVram) drawVramStrip(ctx, w, stageY + STAGE_H, snap?.gpu, t);
       if (t.glass) domeProgress(ctx, w, h, snap);
     },
   };

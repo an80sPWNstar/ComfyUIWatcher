@@ -155,14 +155,70 @@ export function acceleratorFromStats(stats) {
 }
 
 /**
- * VRAM for one device entry. `vram_free` is the CARD's free memory (torch reads it from the driver),
- * so `used` includes anything else on the box — another ComfyUI, a game, a training run. That is
- * the number worth watching, and it is why this is not labelled "used by ComfyUI".
+ * Fold the relay's NVML answer (/watcher/vram) into the /system_stats device list, so one device
+ * entry carries both numbers and everything downstream stays unchanged.
+ *
+ * KEYED BY TORCH INDEX, which is the only thing the two lists share — the relay resolves NVML
+ * handles by UUID precisely because the two orderings differ (see __init__.py). A device the relay
+ * did not answer for keeps the torch arithmetic; that is the AMD case, and the no-relay case.
+ */
+export function mergeDriverVram(stats, driver) {
+  const rows = new Map();
+  for (const row of driver?.devices || []) {
+    if (Number.isFinite(row?.index)) rows.set(row.index, row);
+  }
+  if (!rows.size || !Array.isArray(stats?.devices)) return stats;
+  return {
+    ...stats,
+    devices: stats.devices.map((d) => {
+      const row = String(d?.type).toLowerCase() === 'cpu' ? null : rows.get(d?.index);
+      return row ? { ...d, driver_used: row.used, driver_total: row.total } : d;
+    }),
+  };
+}
+
+/**
+ * VRAM for one device entry, AS NVITOP AND NVIDIA-SMI REPORT IT: what the driver has handed out.
+ *
+ * `driver_used` is that figure straight from NVML when the relay could supply it (mergeDriverVram),
+ * and it is preferred over anything computed here. The arithmetic below is the fallback, and it
+ * lands about a gigabyte high: cudaMemGetInfo and NVML genuinely disagree about one card at one
+ * instant (10.52 GiB against 9.49, New Main, 2026-08-17). Close enough to be useful, not close
+ * enough to stop someone cross-checking against nvitop and thinking the widget is broken.
+ *
+ * `vram_free` is NOT the card's free memory, which is what it looks like and what this assumed
+ * until 2026-08-17. ComfyUI's model_management.get_free_memory returns
+ * `mem_free_cuda + (reserved - active)` — the driver's free memory PLUS torch's own idle allocator
+ * cache — because cache is memory ComfyUI can reuse without asking the driver for more. Sound for
+ * its purpose, wrong for a readout: `total - vram_free` printed 3.7 GB on a card nvitop and guiTOP
+ * both showed at 9.5 GB, same second, same GPU. Two tools disagreeing by 6 GB is read as a bug in
+ * the one nobody else can corroborate.
+ *
+ * `torch_vram_free` is that cache term, shipped alongside in the same /system_stats entry
+ * (server.py), so taking it back out gets the driver's own figure. `used` therefore counts
+ * everything on the card — another ComfyUI, a game, a training run — which is exactly what the
+ * other tools count, and is why this is not labelled "used by ComfyUI".
+ *
+ * The subtraction is skipped when it cannot be right: DirectML reports a 1 GB placeholder as BOTH
+ * numbers, and turning that into "free 0, card full" is worse than passing the placeholder through.
  */
 export function deviceVram(device) {
+  const driverUsed = Number(device?.driver_used);
+  const driverTotal = Number(device?.driver_total);
+  if (driverTotal > 0 && Number.isFinite(driverUsed)) {
+    const used = Math.max(0, Math.min(driverTotal, driverUsed));
+    return {
+      total: driverTotal,
+      free: driverTotal - used,
+      used,
+      fraction: Math.min(1, used / driverTotal),
+    };
+  }
   const total = Number(device?.vram_total);
-  const free = Number(device?.vram_free);
-  if (!(total > 0) || !Number.isFinite(free)) return null;
+  const reported = Number(device?.vram_free);
+  if (!(total > 0) || !Number.isFinite(reported)) return null;
+  const cache = Number(device?.torch_vram_free);
+  const free = Number.isFinite(cache) && cache > 0 && cache < reported ? reported - cache : reported;
   const used = Math.max(0, total - free);
   return { total, free, used, fraction: Math.min(1, used / total) };
 }

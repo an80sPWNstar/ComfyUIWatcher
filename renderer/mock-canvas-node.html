@@ -57,10 +57,13 @@ import { pickDevices, selectedDeviceLabels, allDevices } from '../comfyui-relay/
 
 // A fake four-card box, answered the way ComfyUI's /system_stats answers: every torch device it
 // can see, primary first.
+// `vram_free` here is ComfyUI's own idea of free — the driver's free memory PLUS torch's idle
+// cache, which is why every entry carries the cache term too. The face subtracts it back out so the
+// figures match nvitop's (see deviceVram).
 const STATS = { devices: [
-  { name: 'NVIDIA GeForce RTX 3090 : cudaMallocAsync', type: 'cuda', index: 0, vram_total: 24 * 1024 ** 3, vram_free: 6.2 * 1024 ** 3 },
-  { name: 'NVIDIA GeForce RTX 3060', type: 'cuda', index: 1, vram_total: 12 * 1024 ** 3, vram_free: 1.1 * 1024 ** 3 },
-  { name: 'NVIDIA Tesla P100', type: 'cuda', index: 2, vram_total: 16 * 1024 ** 3, vram_free: 15.4 * 1024 ** 3 },
+  { name: 'NVIDIA GeForce RTX 3090 : cudaMallocAsync', type: 'cuda', index: 0, vram_total: 24 * 1024 ** 3, vram_free: 6.2 * 1024 ** 3, torch_vram_free: 2.4 * 1024 ** 3 },
+  { name: 'NVIDIA GeForce RTX 3060', type: 'cuda', index: 1, vram_total: 12 * 1024 ** 3, vram_free: 1.1 * 1024 ** 3, torch_vram_free: 0.3 * 1024 ** 3 },
+  { name: 'NVIDIA Tesla P100', type: 'cuda', index: 2, vram_total: 16 * 1024 ** 3, vram_free: 15.4 * 1024 ** 3, torch_vram_free: 0 },
   { name: 'cpu', type: 'cpu', index: null, vram_total: 64 * 1024 ** 3, vram_free: 30 * 1024 ** 3 },
 ] };
 // Running row: a MultiGPU loader pins cuda:1. Idle row: nothing pinned, so only ComfyUI's own card.
@@ -70,6 +73,10 @@ const GPU_IDLE = pickDevices(STATS, []);
 const GPU_ALL = allDevices(STATS);
 
 const TITLE_H = 30;
+const NODE_TITLES = {
+  2: 'CLIP Text Encode', 4: 'Load Checkpoint', 6: 'CLIP Text Encode',
+  7: 'Empty Latent Image', 9: 'KSampler', 13: 'VAE Decode',
+};
 const NOTES = {
   WatcherStepsWells: 'The one in the app: four recessed wells, silkscreen labels, no bar.',
   WatcherStepsPlate: 'Hero steps-remaining; step/elapsed/ETA in a strip; progress as a hairline on the node edge.',
@@ -111,13 +118,21 @@ const idle = new JobTracker();
 const done = new JobTracker();
 {
   const t0 = Date.now() - 8 * 60000;
+  done.onPromptNodes({ prompt_id: 'done', total: 9 }, t0);
   done.onExecutionStart({ prompt_id: 'done' }, t0);
+  for (const id of ['2', '4', '6', '7', '9', '13']) done.onExecuting({ node: id, prompt_id: 'done' }, t0 + 10);
   done.onProgress({ value: 1, max: 192, node: '9', prompt_id: 'done' }, t0 + 1000);
   done.onProgress({ value: 192, max: 192, node: '9', prompt_id: 'done' }, t0 + 456000); // ~2.4 s/it
   done.onExecutionEnd('success', { prompt_id: 'done' }, t0 + 456000);
 }
 let rate = 1.4, step = 0, acc = 0, t = performance.now();
+// A real graph: the sampler is four nodes into nine, and the relay is what supplies that "of nine".
+// The stage line answers "what is it doing right now" — the step count only says how far into the
+// node it is.
+job.onPromptNodes({ prompt_id: 'mock', total: 9 }, Date.now());
 job.onExecutionStart({ prompt_id: 'mock' }, Date.now());
+for (const id of ['2', '4', '7']) job.onExecuting({ node: id, prompt_id: 'mock' }, Date.now());
+job.onExecuting({ node: '9', prompt_id: 'mock' }, Date.now());
 function tick() {
   const now = performance.now();
   const dt = Math.min(0.1, (now - t) / 1000); t = now;
@@ -178,7 +193,10 @@ function frame() {
   tick();
   const now = Date.now();
   for (const p of panels) {
-    const snap = { ...p.tracker.snapshot(now), gpu: p.gpu, style: p.style };
+    const base = p.tracker.snapshot(now);
+    // In ComfyUI the title comes off the canvas (watcher-steps.js looks the id up in the graph);
+    // here it comes off a table, so the stage line reads the way it will in the page.
+    const snap = { ...base, gpu: p.gpu, style: p.style, nodeName: NODE_TITLES[base.node] || null };
     // The face is drawn in the node's own space: title bar above, widget strip above that.
     drawFrame(p.ctx, p.face.w, p.faceH + WIDGET_H, 'Watcher · ' + p.face.title, snap.running);
     drawWidgetRow(p.ctx, p.face.w, TITLE_H, p.style);

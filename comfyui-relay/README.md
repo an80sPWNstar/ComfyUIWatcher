@@ -27,6 +27,12 @@ Ten nodes, under **Add Node → comfyuiWATCHER**:
 - **VRAM (All GPUs)** — every card in the box, whatever the workflow is doing. Handy when
   something else is hogging a GPU.
 
+All four job layouts also carry a **NODE** line: which node of the run is going right now, and how
+far through the graph that is — `4/21 KSampler`. The step count only tells you how far into one
+node you are, and a graph spends most of its time loading, encoding and decoding either side of the
+sampler. If nothing has run yet it shows a dash; if the workflow size isn't known it shows the
+position on its own rather than inventing a total.
+
 Every node has a **style** dropdown on it: `rack` or `glass`. It's a widget, not a separate node,
 so you can flip it without deleting anything and it saves with your workflow.
 
@@ -104,6 +110,12 @@ The node tells you which of those it did — `SELECTED IN WORKFLOW`, `COMFYUI DE
 
 The number is the card's actual usage, not just ComfyUI's, so anything else on that GPU counts too.
 That's on purpose — that's the number that decides whether your next run OOMs.
+
+**It's the same number `nvidia-smi` and `nvitop` show you.** That took some doing: ComfyUI's own
+`/system_stats` counts PyTorch's idle allocator cache as *free*, which is fair enough from its point
+of view but reads about 6 GB low next to every other tool on the box. So the VRAM rows are read from
+NVML, the same place nvitop reads. On a card where NVML isn't available (AMD, or no `pynvml`) it
+falls back to ComfyUI's figures with the cache added back in, which is close but a little high.
 
 AMD works. ComfyUI reports the same stuff on ROCm, and PyTorch calls AMD cards `cuda:0` there too,
 so it all lines up. The node prints `ROCm` next to the header so you know it noticed. I don't have

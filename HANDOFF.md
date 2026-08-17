@@ -799,3 +799,52 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   npm test 5/5.
 - COMMITTED on electron-upgrade. Still 0.0.8, nothing released; the branch still awaits Bryan's
   E43 verdict before the 0.0.9 merge/ship.
+
+## 2026-08-17 10:30 -- node pack: VRAM matches nvitop, plus a workflow-stage line
+- Bryan, off a screenshot: the canvas node said "CUDA:0 3.7 / 15.9 GB" while guiTOP/nvitop said 9.5
+  on the same card. TWO causes, both fixed in `comfyui-relay/`:
+  1. `/system_stats` `vram_free` counts torch's idle allocator cache as FREE
+     (`get_free_memory` = `mem_free_cuda + reserved - active`). `torch_vram_free` is that term and
+     ships alongside, so `deviceVram` subtracts it back out.
+  2. That still lands ~1 GiB high -- cudaMemGetInfo and NVML genuinely disagree (10.52 vs 9.49 GiB,
+     New Main, sampled 3x). So the relay gained `GET /watcher/vram`: NVML per-device, keyed by
+     TORCH index, joined BY UUID (torch's device 0 is nvidia-smi's 2 on this box -- index-to-index
+     would have printed the wrong card's memory and looked fine). `deviceVram` prefers it; the
+     arithmetic is the AMD / no-pynvml / old-relay-404 fallback.
+  - NVML's UUID lookup is CASE-SENSITIVE and wants torch's lowercase form; upper-case answers
+    NotFound and silently drops to the nvidia-smi subprocess. Caught by running the helper in New
+    Main's own venv.
+- Second ask: "which step in the workflow it's on". Every job layout now has an 18px NODE line
+  (`drawStage`, `STAGE_H`). Position is COUNTED from nodes seen executing; the denominator is a new
+  relay broadcast `watcher.prompt_nodes` = nodes REACHABLE from the executed outputs (NOT
+  `len(prompt)`, which counts the watcher's own display nodes and would end at "18/21"), minus
+  `execution_cached`. No relay -> bare position, never a guessed total. Total floors at the position.
+- Verified: npm test 5/5 (new stage + VRAM merge assertions); mock-canvas-node.html over
+  http-server, all 10 nodes x rack/glass x running/finished/idle; the NVML helper run inside New
+  Main's venv against nvidia-smi (9.52 GiB vs 9749 MiB, correct card).
+- COPIED into both installs' custom_nodes/comfyui-watcher-relay (py + web/*.js). NOT restarted --
+  New Main had a job running at 10:29. The Python half (/watcher/vram, prompt_nodes) is inert until
+  Bryan restarts ComfyUI; the JS half needs only a hard refresh. NOT committed yet.
+
+## 2026-08-17 10:47 -- follow-up: NVML v1 vs v2 (the last 306 MiB)
+- Bryan restarted ComfyUI; `/watcher/vram` answered live, `source: nvml`, correct card mapping --
+  but read 9955 MiB where nvidia-smi said 9649. Cause: `nvmlDeviceGetMemoryInfo` defaults to the V1
+  struct, whose `used` INCLUDES driver-reserved memory; the v2 struct splits that out (`reserved`
+  306 MiB, measured on the same handle in the same call). nvidia-smi and nvitop both ask for v2.
+- Fixed: pass `version=pynvml.nvmlMemory_v2`, falling back to v1 on an old pynvml. Verified in New
+  Main's venv against nvidia-smi: 9649 = 9649, 245 = 245, exact.
+- Re-copied to both installs 10:47. NEEDS ANOTHER ComfyUI RESTART (a job was running again at the
+  time of the copy, so nothing was restarted here).
+
+## 2026-08-17 11:05 -- live run proved the stage counter, and broke it
+- WS tap during Bryan's own run: `watcher.prompt_nodes {total: 24}`, `execution_cached` 0, positions
+  climbing -- the denominator works end to end on a real graph.
+- BUT the ids were `193:120`, `193:119`, `193:128`, `193:127`, `193:160`: DynamicPrompt subgraph
+  expansion, five stages counted for ONE node 193 on the canvas. The counter would have run past its
+  own 24. Fixed: `realNodeId()` keys the stage set on `display_node` (or the id split at the colon),
+  and the snapshot now carries `displayNode` so `runningNodeTitle` looks up a node the canvas
+  actually has -- without that the NODE name silently vanished for the whole subgraph, which on his
+  graph was most of the run. `progress_state` passes `real_node_id` through the same path. The RATE
+  window still keys on the RAW id: each expanded child runs its own bar with its own max.
+- JS only -- copied to both installs, no restart needed (hard refresh the tab). npm test 5/5 with
+  the real ids from the tap pinned as a case.

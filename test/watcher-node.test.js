@@ -296,6 +296,82 @@ function recorder() {
     assert.strictEqual(j.snapshot(t0 + 5000).rateHistory.length, 0, 'a new job starts a new trace');
   }
 
+  // ── which part of the workflow is running ────────────────────────────────
+  // The step count is a position inside ONE node. This is the position of that node in the run, and
+  // it is COUNTED from what was seen executing — never told to us by ComfyUI, which has no message
+  // for it.
+  {
+    const { stageReading } = await load('face.js');
+    const t0 = 16_000_000;
+    const j = new JobTracker();
+
+    // The relay's size message arrives BEFORE execution_start. It must survive the reset that
+    // message causes, or the denominator is thrown away on every single run.
+    j.onPromptNodes({ prompt_id: 'p1', total: 12 }, t0);
+    j.onExecutionStart({ prompt_id: 'p1' }, t0);
+    assert.strictEqual(j.snapshot(t0).stage, null, 'nothing has run yet, so there is no position');
+
+    j.onExecuting({ node: '4', prompt_id: 'p1' }, t0 + 100);
+    j.onExecutionCached({ nodes: ['1', '2'], prompt_id: 'p1' }, t0 + 100);
+    assert.deepStrictEqual(j.snapshot(t0 + 200).stage, { index: 1, total: 10 },
+      'the cached nodes never run, so they are subtracted rather than counted as done');
+
+    // Two more messages about the same node are still one node.
+    j.onProgress({ value: 0, max: 1, node: '4', prompt_id: 'p1' }, t0 + 300);
+    assert.strictEqual(j.snapshot(t0 + 300).stage.index, 1);
+    j.onExecuting({ node: '9', prompt_id: 'p1' }, t0 + 400);
+    j.onProgress({ value: 3, max: 20, node: '9', prompt_id: 'p1' }, t0 + 500);
+    assert.strictEqual(j.snapshot(t0 + 500).stage.index, 2);
+
+    // The name is on the stage line only when the hero readout is showing step numbers instead —
+    // the same words twice on a 300px node is a waste of the row.
+    const withSteps = { ...j.snapshot(t0 + 500), nodeName: 'KSampler' };
+    assert.deepStrictEqual(stageReading(withSteps), { pos: '2/10', name: 'KSampler' });
+    assert.strictEqual(
+      stageReading({ ...withSteps, steps: false }).name,
+      null,
+      'with no step numbers the hero well already carries the name',
+    );
+
+    // A run that expands past its own prompt (a subgraph, a list) must not print "9 / 7".
+    const grown = new JobTracker();
+    grown.onPromptNodes({ prompt_id: 'p2', total: 2 }, t0);
+    grown.onExecutionStart({ prompt_id: 'p2' }, t0);
+    for (const id of ['1', '2', '3', '4']) grown.onExecuting({ node: id, prompt_id: 'p2' }, t0 + 10);
+    assert.deepStrictEqual(grown.snapshot(t0 + 20).stage, { index: 4, total: 4 });
+
+    // A SUBGRAPH RUNS UNDER EXPANDED IDS. Straight off Bryan's own graph, tapped live 2026-08-17:
+    // one 24-node prompt executed `193:120`, `193:119`, `193:128` — three DynamicPrompt children of
+    // the single node 193 that is actually on the canvas. Counting them as three stages inflates the
+    // position past its own denominator, so the count keys on the real node.
+    const sub = new JobTracker();
+    sub.onPromptNodes({ prompt_id: 'p4', total: 24 }, t0);
+    sub.onExecutionStart({ prompt_id: 'p4' }, t0);
+    sub.onExecuting({ node: '193:120', display_node: '193', prompt_id: 'p4' }, t0 + 10);
+    sub.onExecuting({ node: '193:119', display_node: '193', prompt_id: 'p4' }, t0 + 20);
+    sub.onExecuting({ node: '139', display_node: '139', prompt_id: 'p4' }, t0 + 30);
+    assert.deepStrictEqual(sub.snapshot(t0 + 40).stage, { index: 2, total: 24 },
+      'three expanded ids from two canvas nodes is two stages');
+    assert.strictEqual(sub.snapshot(t0 + 40).displayNode, '139',
+      'and the id offered for the canvas lookup is the one the canvas has');
+    // Without display_node (an older ComfyUI), the id splits at the colon and lands in the same place.
+    const split = new JobTracker();
+    split.onExecutionStart({ prompt_id: 'p5' }, t0);
+    split.onExecuting({ node: '193:120', prompt_id: 'p5' }, t0 + 10);
+    split.onExecuting({ node: '193:119', prompt_id: 'p5' }, t0 + 20);
+    assert.strictEqual(split.snapshot(t0 + 30).stage.index, 1);
+
+    // No relay, no denominator — and a bare position is still an honest answer.
+    const stock = new JobTracker();
+    stock.onExecutionStart({ prompt_id: 'p3' }, t0);
+    stock.onExecuting({ node: '7', prompt_id: 'p3' }, t0 + 10);
+    assert.deepStrictEqual(stock.snapshot(t0 + 10).stage, { index: 1, total: null });
+    assert.strictEqual(stageReading(stock.snapshot(t0 + 10)).pos, '1');
+    // ...and a size belonging to some OTHER prompt is not borrowed for this one.
+    stock.onPromptNodes({ prompt_id: 'somebody-else', total: 40 }, t0 + 20);
+    assert.strictEqual(stock.snapshot(t0 + 30).stage.total, null);
+  }
+
   // ── formatting ───────────────────────────────────────────────────────────
   {
     assert.deepStrictEqual(fmtRate(2.5), { value: '2.50', unit: 'it/s' });
@@ -309,10 +385,12 @@ function recorder() {
   // ── every face, in both states ───────────────────────────────────────────
   const idle = new JobTracker().snapshot(13_000_000);
   const runningTracker = new JobTracker();
+  runningTracker.onPromptNodes({ prompt_id: 'p1', total: 9 }, 14_000_000);
   runningTracker.onExecutionStart({ prompt_id: 'p1' }, 14_000_000);
+  runningTracker.onExecuting({ node: '1', prompt_id: 'p1' }, 14_000_500);
   runningTracker.onProgress({ value: 6, max: 20, node: '3', prompt_id: 'p1' }, 14_001_000);
   runningTracker.onProgress({ value: 7, max: 20, node: '3', prompt_id: 'p1' }, 14_002_000);
-  const running = runningTracker.snapshot(14_002_000);
+  const running = { ...runningTracker.snapshot(14_002_000), nodeName: 'KSampler' };
 
   // ── which GPU(s) a workflow uses ─────────────────────────────────────────
   {
@@ -369,11 +447,44 @@ function recorder() {
     assert.strictEqual(cpuOnly.source, 'primary');
     assert.deepStrictEqual(cpuOnly.devices.map((d) => d.type), ['cuda']);
 
-    // Used is the CARD's used memory, not torch's: total - free.
+    // Used is the DRIVER's used memory — what nvidia-smi, nvitop and guiTOP all report.
     const vram = deviceVram(stats.devices[0]);
     assert.strictEqual(vram.used, 18e9);
     assert.ok(Math.abs(vram.fraction - 0.75) < 1e-9);
     assert.strictEqual(deviceVram({ vram_total: 0, vram_free: 0 }), null, 'no total, no reading');
+
+    // COMFYUI'S `vram_free` IS NOT THE CARD'S FREE MEMORY. get_free_memory adds torch's idle
+    // allocator cache back into it, so total - vram_free reported 3.7 GB on a card nvitop showed at
+    // 9.5 (2026-08-17). `torch_vram_free` is that cache term, so taking it back out gets the number
+    // every other tool on the box prints.
+    const cached = deviceVram({ vram_total: 16e9, vram_free: 12.3e9, torch_vram_free: 5.8e9 });
+    assert.strictEqual(cached.used, 9.5e9, 'the torch cache counts as USED, the way the driver counts it');
+    assert.strictEqual(cached.free, 6.5e9);
+    // DirectML reports a placeholder as BOTH numbers; "free 0, card full" is worse than the
+    // placeholder, so the subtraction is skipped when it cannot be right.
+    const placeholder = deviceVram({ vram_total: 8e9, vram_free: 1e9, torch_vram_free: 1e9 });
+    assert.strictEqual(placeholder.used, 7e9, 'an equal cache term is not subtracted');
+
+    // ...but the arithmetic is only the FALLBACK. Even with the cache term removed, cudaMemGetInfo
+    // and NVML disagree by about a gigabyte on one card at one instant (10.52 GiB vs 9.49, New
+    // Main, 2026-08-17), so the relay's NVML answer wins whenever it is there — that is the figure
+    // nvitop, nvidia-smi and guiTOP all print.
+    {
+      const { mergeDriverVram } = await load('devices.js');
+      const raw = {
+        devices: [
+          { type: 'cuda', index: 0, vram_total: 16e9, vram_free: 12.3e9, torch_vram_free: 5.8e9 },
+          { type: 'cuda', index: 1, vram_total: 24e9, vram_free: 20e9, torch_vram_free: 0 },
+          { type: 'cpu', index: null, vram_total: 64e9, vram_free: 32e9 },
+        ],
+      };
+      const merged = mergeDriverVram(raw, { devices: [{ index: 0, used: 9.49e9, total: 16e9 }] });
+      assert.strictEqual(deviceVram(merged.devices[0]).used, 9.49e9, 'NVML wins over the arithmetic');
+      assert.strictEqual(deviceVram(merged.devices[1]).used, 4e9, 'a card NVML did not answer for keeps it');
+      // No relay, an older relay (404) or an AMD box: nothing to merge, and nothing changes.
+      assert.strictEqual(mergeDriverVram(raw, null), raw);
+      assert.strictEqual(mergeDriverVram(raw, { devices: [] }), raw);
+    }
     // THE REAL STRING, copied from the live :8189 instance's /system_stats. ComfyUI puts the device
     // label in front and the allocator on the back, so a naive split on ':' yields "cuda" — which is
     // exactly what it printed beside every card until this was checked against a running server.
@@ -516,6 +627,11 @@ function recorder() {
     assert.ok(joined.includes('it/s') || joined.includes('IT/S'), `${nodeId}: names the rate's unit`);
     assert.ok(joined.includes('13s'), `${nodeId}: shows the ETA — ${joined}`);
     assert.ok(joined.includes('2s'), `${nodeId}: shows elapsed — ${joined}`);
+    // ...and WHICH part of the workflow that step count belongs to, which the step count itself
+    // cannot say: two nodes into a nine-node graph, in the sampler.
+    assert.ok(joined.includes('NODE'), `${nodeId}: labels the stage line — ${joined}`);
+    assert.ok(joined.includes('2/9'), `${nodeId}: shows the workflow position — ${joined}`);
+    assert.ok(joined.includes('KSampler'), `${nodeId}: names the running node — ${joined}`);
   }
 
   console.log('watcher-node: all assertions passed');

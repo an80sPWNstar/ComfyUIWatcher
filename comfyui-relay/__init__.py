@@ -82,6 +82,76 @@ try:
 except Exception:
     logging.exception("comfyuiWATCHER relay failed to install batch-size reporting")
 
+# ── How many nodes this run will execute (added 2026-08-17) ──
+# A watcher can COUNT the nodes it sees executing, but nothing in ComfyUI's protocol says how many
+# are coming — so a face could show "NODE 4" and never "NODE 4 / 21". Same shape as the batch
+# denominator above, and the same fallback: without this, the position is still honest, it just has
+# no total.
+#
+# len(prompt) IS NOT THE ANSWER. It counts every node on the canvas, including the ones nothing is
+# wired to — the watcher's own display nodes among them — so a run would finish at "18 / 21" and
+# look stuck. What executes is what is REACHABLE from the outputs being asked for, which is the walk
+# below; the nodes ComfyUI then skips because their result is cached are subtracted on the JS side
+# from the execution_cached message it already sends.
+def _watcher_reachable_count(prompt, execute_outputs):
+    seen = set()
+    stack = [str(node_id) for node_id in (execute_outputs or [])]
+    while stack:
+        node_id = stack.pop()
+        if node_id in seen or node_id not in prompt:
+            continue
+        seen.add(node_id)
+        for value in (prompt[node_id].get("inputs") or {}).values():
+            # A wired input is ["<source node id>", <slot>]; a literal is a number or a string.
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], (str, int)):
+                stack.append(str(value[0]))
+    return len(seen)
+
+
+try:
+    import execution
+    from server import PromptServer  # re-imported: the blocks above may have failed
+
+    if not getattr(execution, "_watcher_promptsize_installed", False):
+        _PromptExecutor = execution.PromptExecutor
+
+        def _watcher_send_prompt_size(prompt, prompt_id, execute_outputs):
+            try:
+                total = _watcher_reachable_count(prompt or {}, execute_outputs)
+                if total > 0:
+                    PromptServer.instance.send_sync(
+                        "watcher.prompt_nodes",
+                        {"prompt_id": prompt_id, "total": total},
+                        None,  # broadcast: every watcher, no client is targeted
+                    )
+            except Exception:
+                logging.exception("comfyuiWATCHER relay failed to report the workflow size")
+
+        # Both entry points are wrapped: execute() is a thin sync wrapper around execute_async() on
+        # current ComfyUI, but an older build has only the sync one. Wrapping whichever exists means
+        # the message is sent exactly once either way.
+        if hasattr(_PromptExecutor, "execute_async"):
+            _orig_execute_async = _PromptExecutor.execute_async
+
+            async def _watcher_execute_async(self, prompt, prompt_id, extra_data={}, execute_outputs=[]):
+                _watcher_send_prompt_size(prompt, prompt_id, execute_outputs)
+                return await _orig_execute_async(self, prompt, prompt_id, extra_data, execute_outputs)
+
+            _PromptExecutor.execute_async = _watcher_execute_async
+        else:
+            _orig_execute = _PromptExecutor.execute
+
+            def _watcher_execute(self, prompt, prompt_id, extra_data={}, execute_outputs=[]):
+                _watcher_send_prompt_size(prompt, prompt_id, execute_outputs)
+                return _orig_execute(self, prompt, prompt_id, extra_data, execute_outputs)
+
+            _PromptExecutor.execute = _watcher_execute
+
+        execution._watcher_promptsize_installed = True
+        logging.info("comfyuiWATCHER relay: workflow-size reporting installed")
+except Exception:
+    logging.exception("comfyuiWATCHER relay failed to install workflow-size reporting")
+
 # ── Host build info: the NVIDIA driver version (added 2026-08-14) ──
 # ComfyUI's own /system_stats reports comfyui_version, python_version and pytorch_version (which
 # carries the CUDA build tag, e.g. 2.13.0+cu130), but NOTHING in ComfyUI reports the NVIDIA DRIVER
@@ -181,6 +251,106 @@ def _watcher_driver_version():
     return None  # not cached: a transient failure should not pin "unknown" for the whole session
 
 
+# ── VRAM the way nvidia-smi and nvitop report it (added 2026-08-17) ──
+# /system_stats cannot answer this. Its `vram_free` is torch's, and torch's is not the driver's:
+# even after the allocator cache is subtracted back out (see devices.js), cudaMemGetInfo and NVML
+# disagree by about a gigabyte on the same card at the same instant — measured on New Main
+# 2026-08-17: torch said 10.52 GiB used where nvidia-smi and nvitop both said 9.49. A watcher that
+# is the ONLY tool on the box printing a different figure gets read as the broken one, so the number
+# is taken from the same place nvitop takes it: NVML.
+#
+# THE INDEX CANNOT BE THE JOIN. Measured on this same box: torch's device 0 is the card nvidia-smi
+# calls 2, because CUDA orders by capability while NVML orders by PCI bus. Mapping index to index
+# would have printed the 3090's memory on the 5070 Ti's row and looked entirely plausible. The join
+# is the UUID, which both sides report; the answer is keyed by TORCH index, because that is what
+# /system_stats device entries carry and what a workflow's `cuda:1` widget means.
+#
+# NVML via pynvml, else the nvidia-smi CSV. No NVML at all (an AMD box) returns nothing and the
+# widget falls back to the torch arithmetic rather than showing a blank.
+def _watcher_torch_uuids():
+    import torch
+
+    out = {}
+    for i in range(torch.cuda.device_count()):
+        uuid = getattr(torch.cuda.get_device_properties(i), "uuid", None)
+        if uuid is not None:
+            # AS TORCH SPELLS IT, lowercase. NVML's own lookup is case-SENSITIVE and answers
+            # NVMLError_NotFound for the upper-case form (measured 2026-08-17), which silently
+            # dropped every card to the nvidia-smi fallback — a subprocess every couple of seconds
+            # for a number NVML had ready. nvidia-smi's CSV is upper-case, so that path folds case
+            # on both sides itself.
+            out[i] = "GPU-" + str(uuid)
+    return out
+
+
+def _watcher_vram_pynvml(uuids):
+    # NVML HAS TWO ANSWERS AND ONLY THE SECOND ONE IS NVIDIA-SMI'S. The v1 struct counts
+    # driver-reserved memory as used; the v2 struct splits it into its own `reserved` field.
+    # Measured on New Main 2026-08-17, same card, same call: v1 9955 MiB, v2 9649 MiB, reserved 306
+    # -- and nvidia-smi said 9649. nvidia-smi and nvitop both ask for v2, so this asks for v2.
+    # An old pynvml with no `nvmlMemory_v2` falls back to v1, which is 300 MiB high but still the
+    # driver's own accounting rather than torch's.
+    import pynvml
+
+    pynvml.nvmlInit()
+    version = getattr(pynvml, "nvmlMemory_v2", None)
+    devices = []
+    for index, uuid in uuids.items():
+        handle = pynvml.nvmlDeviceGetHandleByUUID(uuid.encode())
+        mem = None
+        if version is not None:
+            try:
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle, version=version)
+            except Exception:
+                mem = None
+        if mem is None:
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        devices.append({"index": index, "used": int(mem.used), "total": int(mem.total)})
+    return devices
+
+
+def _watcher_vram_smi(uuids):
+    import subprocess
+
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=uuid,memory.used,memory.total", "--format=csv,noheader,nounits"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    rows = {}
+    for line in (out.stdout or "").splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) == 3:
+            rows[parts[0].upper()] = parts
+    devices = []
+    for index, uuid in uuids.items():
+        row = rows.get(uuid.upper())
+        if row:
+            # nvidia-smi's --format=nounits reports MiB; every other figure here is bytes.
+            devices.append(
+                {"index": index, "used": int(row[1]) * 1024 ** 2, "total": int(row[2]) * 1024 ** 2}
+            )
+    return devices
+
+
+def _watcher_vram():
+    try:
+        uuids = _watcher_torch_uuids()
+    except Exception:
+        return {"devices": [], "source": None}
+    if not uuids:
+        return {"devices": [], "source": None}
+    for source, probe in (("nvml", _watcher_vram_pynvml), ("nvidia-smi", _watcher_vram_smi)):
+        try:
+            devices = probe(uuids)
+        except Exception:
+            continue
+        if devices:
+            return {"devices": devices, "source": source}
+    return {"devices": [], "source": None}
+
+
 try:
     import asyncio
 
@@ -197,10 +367,16 @@ try:
             # WebSocket client on the box for one cosmetic version string.
             return web.json_response({"driver": await asyncio.to_thread(_watcher_driver_version)})
 
+        @PromptServer.instance.routes.get("/watcher/vram")
+        async def _watcher_vram_route(request):
+            # Same rule: NVML is fast, but the nvidia-smi fallback is a subprocess, and this one is
+            # polled every couple of seconds rather than once a session.
+            return web.json_response(await asyncio.to_thread(_watcher_vram))
+
         PromptServer._watcher_hostinfo_installed = True
-        logging.info("comfyuiWATCHER relay: /watcher/host_info installed")
+        logging.info("comfyuiWATCHER relay: /watcher/host_info and /watcher/vram installed")
 except Exception:
-    logging.exception("comfyuiWATCHER relay failed to install /watcher/host_info")
+    logging.exception("comfyuiWATCHER relay failed to install its /watcher routes")
 
 # ── The watcher canvas nodes (added 2026-08-15) ──
 # FIVE DISPLAY-ONLY NODES, one per face. They have no inputs and no outputs, so ComfyUI's executor

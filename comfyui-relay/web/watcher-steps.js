@@ -25,6 +25,7 @@ import {
   pickDevices,
   allDevices,
   acceleratorFromStats,
+  mergeDriverVram,
 } from './devices.js';
 
 const TICK_MS = 250; // elapsed/ETA are clocks: they must tick between messages, like the widget's
@@ -113,6 +114,21 @@ function hasVramNode() {
 //
 // So: the first poll is forced, and stopping needs TWO consecutive empty ticks. Loading a workflow,
 // undoing, or dragging a node between graphs all momentarily show an empty canvas.
+/**
+ * The driver's own VRAM figures, from our relay's /watcher/vram (NVML — the same source nvitop
+ * reads). A 404 is the normal answer from a host running a relay copy older than this route, and an
+ * AMD box answers with an empty list: both mean "fall back to the torch arithmetic", not "error".
+ */
+async function driverVram() {
+  try {
+    const res = await api.fetchApi('/watcher/vram');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 let missTicks = 0;
 async function pollDevices(force) {
   if (!force) {
@@ -127,7 +143,7 @@ async function pollDevices(force) {
   }
   try {
     const res = await api.fetchApi('/system_stats');
-    const stats = await res.json();
+    const stats = mergeDriverVram(await res.json(), await driverVram());
     const accel = acceleratorFromStats(stats);
     const { labels, splitCount } = graphDevices();
     gpu = { ...pickDevices(stats, labels, splitCount), accel, error: null };
@@ -176,6 +192,13 @@ on('executing', (d, now) => {
   tracker.onExecuting(d, now);
   ensureTicking();
 });
+on('execution_cached', (d, now) => tracker.onExecutionCached(d, now));
+// Relay-only, and always broadcast: there is no targeted twin to listen for. It is what turns the
+// stage line's bare position into "4 / 21" — see JobTracker.onPromptNodes.
+api.addEventListener('watcher.prompt_nodes', (e) => {
+  tracker.onPromptNodes(e.detail, Date.now());
+  redraw();
+});
 on('execution_success', (d, now) => tracker.onExecutionEnd('success', d, now));
 on('execution_error', (d, now) => tracker.onExecutionEnd('error', d, now));
 on('execution_interrupted', (d, now) => tracker.onExecutionEnd('interrupted', d, now));
@@ -191,7 +214,10 @@ function snapshot(node, face) {
   const snap = tracker.snapshot(Date.now());
   return {
     ...snap,
-    nodeName: runningNodeTitle(snap.node),
+    // The DISPLAY id, not the raw one: a subgraph runs under `193:120`, and the node on the canvas
+    // is 193. Looking up the raw id finds nothing and the name silently disappears for the whole
+    // subgraph — which on Bryan's graph was most of the run (2026-08-17).
+    nodeName: runningNodeTitle(snap.displayNode ?? snap.node),
     gpu: face?.allDevices ? gpuAll : gpu,
     style: styleOf(node),
   };

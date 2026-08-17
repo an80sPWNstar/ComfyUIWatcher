@@ -16,6 +16,24 @@
 //   - but a KNOWN RATE IS NEVER REPLACED BY null inside one job — the last measurement is still
 //     the honest answer while the next item's first interval is being measured.
 
+/**
+ * The node as the CANVAS knows it. A subgraph runs under ids like `193:120` — ComfyUI's DynamicPrompt
+ * expansion, where 193 is the node you can actually see and 120 is one of the nodes it expanded into.
+ * The execution messages carry `display_node` for exactly this, and fall back to splitting the id.
+ *
+ * The stage counter has to key on THIS, not on the raw id: the denominator counts workflow nodes, so
+ * counting three expanded children as three stages inflates the position past its own total. Seen
+ * live on Bryan's own graph the first time this ran (2026-08-17): `193:120`, `193:119` and `193:128`
+ * were three stages of a 24-node run that only had one node 193 in it.
+ *
+ * The rate window still keys on the RAW id — each expanded child runs its own progress bar with its
+ * own max, and splicing two of them together measures nothing.
+ */
+export function realNodeId(data) {
+  const id = data?.display_node ?? data?.node;
+  return id == null ? null : String(id).split(':')[0];
+}
+
 export const RATE_WINDOW_MS = 20000;
 export const RATE_MIN_SAMPLES_KEPT = 4;
 // How much rate history the Trace face plots. Per job, not per session: a trace that spans two
@@ -26,13 +44,22 @@ export class JobTracker {
   constructor() {
     this.reset();
     this.queueRemaining = null;
+    // NOT cleared by reset(): the relay broadcasts the prompt's size BEFORE ComfyUI sends
+    // execution_start, so a reset on that message would throw the denominator away every time.
+    // It carries its own prompt_id and is only believed for the job it names.
+    this._promptSize = null;
   }
 
   reset() {
     this.promptId = null;
     this.node = null;
+    this.displayNode = null;
     this.step = null;
     this.max = null;
+    // WHICH PART OF THE WORKFLOW IS RUNNING. A set, not a counter: a node that reports progress and
+    // then reports it again is one node, and a subgraph can hand the same id back more than once.
+    this._nodesRun = new Set();
+    this.cachedNodes = 0;
     this.startedAtMs = null; // null when we never saw the job start: elapsed is then unknowable
     this.endedAtMs = null;
     this.state = 'idle'; // idle | running | success | error | interrupted
@@ -67,6 +94,11 @@ export class JobTracker {
     }
     this.promptId = promptId ?? this.promptId;
     this.node = data.node ?? this.node;
+    const real = realNodeId(data);
+    if (real != null) {
+      this._nodesRun.add(real);
+      this.displayNode = real;
+    }
     this.step = data.value;
     this.max = typeof data.max === 'number' ? data.max : this.max;
 
@@ -113,7 +145,15 @@ export class JobTracker {
     }
     if (!pick) return;
     this.onProgress(
-      { value: pick.n.value, max: pick.n.max, node: String(pick.id), prompt_id: data.prompt_id },
+      {
+        value: pick.n.value,
+        max: pick.n.max,
+        node: String(pick.id),
+        // Its entries carry `real_node_id` for the same reason `executing` carries `display_node`:
+        // the key is a DynamicPrompt id, which for a subgraph is not a node anyone can see.
+        display_node: pick.n.real_node_id,
+        prompt_id: data.prompt_id,
+      },
       now,
     );
   }
@@ -135,6 +175,34 @@ export class JobTracker {
       this.max = null;
     }
     this.node = data.node;
+    this.displayNode = realNodeId(data) ?? this.displayNode;
+    if (this.displayNode != null) this._nodesRun.add(this.displayNode);
+  }
+
+  /**
+   * execution_cached: {nodes: [id...], prompt_id} — the nodes this run will SKIP because their
+   * output is already in the cache. They never emit `executing` (execution.py returns before that
+   * send), so they are subtracted from the workflow size rather than counted as done: a second run
+   * of the same graph would otherwise sit at "3 / 21" and finish there.
+   */
+  onExecutionCached(data, _now) {
+    if (!Array.isArray(data?.nodes)) return;
+    const promptId = data.prompt_id ?? null;
+    if (promptId && this.promptId && promptId !== this.promptId) return;
+    this.cachedNodes = data.nodes.length;
+  }
+
+  /**
+   * watcher.prompt_nodes: {prompt_id, total} — OUR relay's message, and the only source of a
+   * denominator. Nothing in ComfyUI's own protocol says how many nodes a run will execute; the
+   * relay walks the prompt from its outputs and counts what is reachable (see __init__.py).
+   * Without the relay this never arrives and the stage line honestly shows a position with no total.
+   */
+  onPromptNodes(data, _now) {
+    const promptId = data?.prompt_id ?? null;
+    const total = Number(data?.total);
+    if (!promptId || !Number.isFinite(total) || total <= 0) return;
+    this._promptSize = { promptId, total };
   }
 
   onExecutionEnd(kind, data, now) {
@@ -151,6 +219,28 @@ export class JobTracker {
 
   isRunning() {
     return this.state === 'running';
+  }
+
+  /**
+   * HOW FAR THROUGH THE WORKFLOW — the question the step count cannot answer. "STEP 7/20" is a
+   * position inside ONE node; a graph that loads a checkpoint, encodes text, samples, upscales and
+   * decodes spends most of its wall clock outside the sampler, and nothing on the face said which
+   * of those was happening (Bryan, 2026-08-17).
+   *
+   * The position is COUNTED, never told to us: one entry per node seen executing this run. The
+   * total needs the relay, exactly like the batch denominator does, so it is null on a stock
+   * install and the face prints a bare position rather than inventing a graph size.
+   *
+   * The total FLOORS AT THE POSITION: a subgraph or a list expansion can run nodes the prompt never
+   * listed, and "9 / 7" is a broken instrument. Null when nothing has run, so an idle node shows a
+   * dash instead of "0".
+   */
+  stage() {
+    const index = this._nodesRun.size;
+    if (!index) return null;
+    const size = this._promptSize?.promptId === this.promptId ? this._promptSize.total : null;
+    const total = size == null ? null : Math.max(size - this.cachedNodes, index);
+    return { index, total };
   }
 
   /**
@@ -201,6 +291,9 @@ export class JobTracker {
       step: this.step,
       max: this.max,
       node: this.node,
+      // The id to look up on the canvas: a subgraph child is not on it, its parent is.
+      displayNode: this.displayNode,
+      stage: this.stage(),
       rate,
       elapsed,
       eta,
