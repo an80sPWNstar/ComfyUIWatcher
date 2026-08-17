@@ -864,3 +864,18 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   same tag with `gh release upload v0.0.9`.
 - An older 0.0.8 instance was still running alongside the new one at 12:41 (two comfyuiWATCHER
   processes) -- left alone, it is Bryan's.
+
+## 2026-08-17 13:10 -- VRAM row polls at 1s (post-0.0.9)
+- Bryan: the node's VRAM lags guiTOP, which reads nvidia-smi at 1s. DEVICE_POLL_MS 2000 -> 1000,
+  with 2000 kept ONLY when the relay answers `source: "nvidia-smi"` (no pynvml -> a subprocess per
+  request; one a second per tab is real cost). setInterval replaced by a timeout chain so the gap is
+  changeable and a slow answer cannot stack requests; the "already polling" guard is an explicit
+  flag, NOT the timer handle -- the handle is null mid-request and onDrawForeground runs every frame.
+- Verified in the LIVE ComfyUI page via playwright against :8188 (added a VRAM node to a throwaway
+  canvas in playwright's own browser profile, never saved): module loads clean, /watcher/vram
+  requested every 1.11-1.14s. Also confirmed the rate readout independently -- a WS tap measured
+  28.24 s/it while the node printed 28.24.
+- Copied to both installs (JS only, hard refresh). Committed 3f4934e, pushed to main.
+- NOTE: the v0.0.9 installer was built BEFORE this, so the relay bundled in the released exe still
+  polls at 2s. Bryan's own installs are current. Fold into the next release, or rebuild if it
+  matters sooner.
