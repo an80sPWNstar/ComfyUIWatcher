@@ -754,3 +754,97 @@ Publish-readiness audit + fixes, all in working tree, NOT committed:
 - Root README rewritten for the launch; setup-panel "five nodes" -> unnumbered; dead FACES const removed from lcd.js; stale comments fixed.
 - Tests 5/5, py_compile OK, app relaunched detached and up.
 BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (Bryan's registry account). Electron 31 is EOL - flagged, not upgraded. If relay __init__.py ships, re-copy into BOTH installs' custom_nodes + restart.
+
+## 2026-08-16 20:4x -- Electron 31 -> 43 upgrade (branch: electron-upgrade; picked up after crash)
+- Machine crashed right after the previous session branched `electron-upgrade` -- zero work was on
+  it. Recovered state: main = 0c51016 (audit fixes + relay-standalone COMMITTED, contradicting the
+  19:55 entry's "NOT committed"), main is AHEAD OF ORIGIN BY 2, not pushed. `nodes-pack` branch =
+  subtree split of comfyui-relay for the future standalone repo.
+- UPGRADED on this branch: electron ^31.7.7 -> ^43.4.0 (latest stable), electron-builder ^25 ->
+  ^26.0.12. Main process is now Node 24.18 / Chromium 150.
+- **The `globalThis.WebSocket` branch in comfyui-client.js ran for the FIRST TIME EVER** (Node 24 has
+  undici's global WS; Node 20 didn't). Verified live: New Main ONLINE through it, real Flux2-Klein
+  job on the reactor panel, zero page errors. Binary preview frames arrive as Blob instead of
+  Buffer, but _handleMessage JSON.parse-rejects both identically -- no code change needed. Comment
+  at the WebSocketImpl line updated.
+- DRIVER window reads 610.88 live -- the relay's /watcher/host_info route is finally loaded on
+  New Main (instance got restarted since 08-14).
+- electron postinstall AV-strip quirk: this time dist/ was MISSING entirely after npm install
+  (no zip in cache); `cd node_modules/electron && node install.js` downloaded + extracted clean and
+  SURVIVED -- no Expand-Archive workaround needed. Verify electron.exe exists either way.
+- electron-builder 26 + Electron 43: `--dir` build packs and the packaged exe launches with a window.
+  NSIS/Linux installers NOT built -- this is a branch commit, not a release.
+- npm test 5/5. App relaunched detached from source (Electron 43), window up.
+- NEXT: Bryan uses the app on E43 for a while; if good, merge electron-upgrade -> main, ship as
+  0.0.9 (remember main's 2 unpushed commits go with it). WSL still down, so any release is
+  Windows-only until virtualization is fixed. playwright-core was installed --no-save for the
+  verification; a fresh npm install drops it again.
+
+## 2026-08-16 21:5x -- twin-dial fixes recovered after crash (branch: electron-upgrade)
+
+- Machine crashed again mid-session (~21:31 area, second night running). In flight and left
+  uncommitted in the tree, recovered and verified this session:
+  1. Twin-dial SVG widened 240 -> 264 (`createTwinDial`, reactor-panel.js): the 2026-08-16 type
+     pass grew the figure to 23 units and at 240 the digits reached into both arc rings -- Bryan:
+     "the digital numbers overlap onto the dials". All 24 extra units go to the centre column;
+     pivots stay 24 units in from each edge, movements untouched.
+  2. Control-room dial figure is now NEAR-BLACK INK WITH A --lit HALO (`paint-order: stroke`,
+     reactor.css) -- Bryan's pick, third pass in a live A/B: 40% mix read brown, 62% read plain
+     orange, plain drop-shadow swamped the thin mono strokes. State colour (amber/jade/red) lives
+     in the halo. `.p-inst--nosig` strips stroke+filter, or a resting "--" would glow like a
+     reading. Console idiom untouched (its figure IS light).
+- Verified in mock-skins over http-server: room idiom live (15.51 s/it clear of both arcs, halo
+  crisp), room resting (dim --, no halo, NO RATE), console idiom unaffected by the wider viewBox.
+  CSS caps are height-only so the 2.2:1 aspect just renders shorter; nothing assumes 240.
+  npm test 5/5.
+- COMMITTED on electron-upgrade. Still 0.0.8, nothing released; the branch still awaits Bryan's
+  E43 verdict before the 0.0.9 merge/ship.
+
+## 2026-08-17 10:30 -- node pack: VRAM matches nvitop, plus a workflow-stage line
+- Bryan, off a screenshot: the canvas node said "CUDA:0 3.7 / 15.9 GB" while guiTOP/nvitop said 9.5
+  on the same card. TWO causes, both fixed in `comfyui-relay/`:
+  1. `/system_stats` `vram_free` counts torch's idle allocator cache as FREE
+     (`get_free_memory` = `mem_free_cuda + reserved - active`). `torch_vram_free` is that term and
+     ships alongside, so `deviceVram` subtracts it back out.
+  2. That still lands ~1 GiB high -- cudaMemGetInfo and NVML genuinely disagree (10.52 vs 9.49 GiB,
+     New Main, sampled 3x). So the relay gained `GET /watcher/vram`: NVML per-device, keyed by
+     TORCH index, joined BY UUID (torch's device 0 is nvidia-smi's 2 on this box -- index-to-index
+     would have printed the wrong card's memory and looked fine). `deviceVram` prefers it; the
+     arithmetic is the AMD / no-pynvml / old-relay-404 fallback.
+  - NVML's UUID lookup is CASE-SENSITIVE and wants torch's lowercase form; upper-case answers
+    NotFound and silently drops to the nvidia-smi subprocess. Caught by running the helper in New
+    Main's own venv.
+- Second ask: "which step in the workflow it's on". Every job layout now has an 18px NODE line
+  (`drawStage`, `STAGE_H`). Position is COUNTED from nodes seen executing; the denominator is a new
+  relay broadcast `watcher.prompt_nodes` = nodes REACHABLE from the executed outputs (NOT
+  `len(prompt)`, which counts the watcher's own display nodes and would end at "18/21"), minus
+  `execution_cached`. No relay -> bare position, never a guessed total. Total floors at the position.
+- Verified: npm test 5/5 (new stage + VRAM merge assertions); mock-canvas-node.html over
+  http-server, all 10 nodes x rack/glass x running/finished/idle; the NVML helper run inside New
+  Main's venv against nvidia-smi (9.52 GiB vs 9749 MiB, correct card).
+- COPIED into both installs' custom_nodes/comfyui-watcher-relay (py + web/*.js). NOT restarted --
+  New Main had a job running at 10:29. The Python half (/watcher/vram, prompt_nodes) is inert until
+  Bryan restarts ComfyUI; the JS half needs only a hard refresh. NOT committed yet.
+
+## 2026-08-17 10:47 -- follow-up: NVML v1 vs v2 (the last 306 MiB)
+- Bryan restarted ComfyUI; `/watcher/vram` answered live, `source: nvml`, correct card mapping --
+  but read 9955 MiB where nvidia-smi said 9649. Cause: `nvmlDeviceGetMemoryInfo` defaults to the V1
+  struct, whose `used` INCLUDES driver-reserved memory; the v2 struct splits that out (`reserved`
+  306 MiB, measured on the same handle in the same call). nvidia-smi and nvitop both ask for v2.
+- Fixed: pass `version=pynvml.nvmlMemory_v2`, falling back to v1 on an old pynvml. Verified in New
+  Main's venv against nvidia-smi: 9649 = 9649, 245 = 245, exact.
+- Re-copied to both installs 10:47. NEEDS ANOTHER ComfyUI RESTART (a job was running again at the
+  time of the copy, so nothing was restarted here).
+
+## 2026-08-17 11:05 -- live run proved the stage counter, and broke it
+- WS tap during Bryan's own run: `watcher.prompt_nodes {total: 24}`, `execution_cached` 0, positions
+  climbing -- the denominator works end to end on a real graph.
+- BUT the ids were `193:120`, `193:119`, `193:128`, `193:127`, `193:160`: DynamicPrompt subgraph
+  expansion, five stages counted for ONE node 193 on the canvas. The counter would have run past its
+  own 24. Fixed: `realNodeId()` keys the stage set on `display_node` (or the id split at the colon),
+  and the snapshot now carries `displayNode` so `runningNodeTitle` looks up a node the canvas
+  actually has -- without that the NODE name silently vanished for the whole subgraph, which on his
+  graph was most of the run. `progress_state` passes `real_node_id` through the same path. The RATE
+  window still keys on the RAW id: each expanded child runs its own bar with its own max.
+- JS only -- copied to both installs, no restart needed (hard refresh the tab). npm test 5/5 with
+  the real ids from the tap pinned as a case.

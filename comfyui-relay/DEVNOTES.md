@@ -35,6 +35,51 @@ recording 2D context, so they assert the strings each face prints without a canv
 - **`/system_stats` is polled only while a VRAM node is on the canvas**, and the interval stops
   when the last one is deleted.
 
+## VRAM: whose number is it (2026-08-17)
+
+The node showed 3.7 GB on a card nvitop and guiTOP both showed at 9.5 — a six-gigabyte disagreement,
+and the widget was the only tool on the box that could not be corroborated. Two separate causes,
+both fixed, and the order matters:
+
+1. **`vram_free` from `/system_stats` is not the card's free memory.** ComfyUI's
+   `model_management.get_free_memory` returns `mem_free_cuda + (reserved - active)` — the driver's
+   free memory plus torch's own idle allocator cache — because cache is memory ComfyUI can reuse
+   without asking the driver. Correct for its purpose, wrong to print. `torch_vram_free` is that
+   cache term and ships in the same entry, so subtracting it back out recovers the driver's figure.
+2. **Even then, cudaMemGetInfo and NVML disagree by about a gigabyte** on the same card at the same
+   instant (10.52 GiB vs 9.49, New Main, measured three times a second apart). So the number is now
+   taken from where nvitop takes it: `/watcher/vram`, an NVML read inside the ComfyUI process.
+   `deviceVram` prefers it and keeps the arithmetic as the fallback for an AMD box, a missing
+   `pynvml`, or a relay copy older than the route (404 → fall back, not an error).
+
+**The index is not the join.** On this box torch's device 0 is the card nvidia-smi calls 2 — CUDA
+orders by capability, NVML by PCI bus. Index-to-index would have printed the 3090's memory on the
+5070 Ti's row and looked entirely plausible. The join is the UUID, and the answer is keyed by TORCH
+index because that is what `/system_stats` entries carry and what a workflow's `cuda:1` widget means.
+
+**NVML's UUID lookup is case-sensitive**, and torch spells the UUID lowercase. Upper-casing it
+answers `NVMLError_NotFound`, which silently dropped every card to the nvidia-smi fallback — a
+subprocess every couple of seconds for a number NVML had ready.
+
+## The stage line — which part of the workflow is running (2026-08-17)
+
+`STEP 7/20` is a position inside ONE node. A graph spends most of its wall clock in the nodes either
+side of the sampler, and nothing on the face said which of them was running. Every job layout now
+carries an 18px `NODE` line under it.
+
+- **The position is counted, never told to us**: one entry per node id seen executing this run
+  (`JobTracker.stage`). ComfyUI has no message for "node 4 of 21".
+- **The denominator needs the relay**, exactly like the batch total does: `watcher.prompt_nodes`,
+  broadcast from a wrapper around `PromptExecutor.execute_async`. `len(prompt)` is NOT the answer —
+  it counts every node on the canvas including the watcher's own display nodes, so a run would end
+  at "18 / 21" and look stuck. It is the count REACHABLE from the outputs being executed, minus the
+  ones `execution_cached` says will be skipped. No relay → a bare position, never a guessed total.
+- **The total floors at the position.** A subgraph or a list expansion can run nodes the prompt never
+  listed, and "9 / 7" is a broken instrument.
+- The node's NAME is printed on this line only when the hero readout is showing step numbers: with
+  no steps, `stepReading()` already puts the title in the big well, and the same words twice on a
+  300px node wastes the row.
+
 ## Two bugs that only a real server found
 
 Both are the same lesson: a stub agrees with whatever you assumed when you wrote it.

@@ -1,6 +1,6 @@
 {
   "name": "comfyuiwatcher",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "comfyuiWATCHER — a desktop widget showing live step/speed/ETA for ComfyUI instances and ai-toolkit LoRA trainers",
   "author": "Bryan",
   "license": "MIT",
@@ -16,8 +16,8 @@
     "test": "node test/run.js"
   },
   "devDependencies": {
-    "electron": "^31.7.7",
-    "electron-builder": "^25.1.8"
+    "electron": "^43.4.0",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "ws": "^8.21.3"
