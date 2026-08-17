@@ -308,40 +308,6 @@ function dialRangeLabel(kind, range) {
   return `${range} s/it  ―  ${samplingFastEnd(range)} it/s`;
 }
 
-const FACES = {
-  // Kept as the shape the drawing code reads; the live specs come from faceSpec() so a range change
-  // needs no new entry here.
-  sampling: {
-    minLog: -2,
-    maxLog: 2,
-    units: { slow: 's/it', fast: 'it/s' },
-    marks: SAMPLING_MARKS[100],
-  },
-  // Training: 60..1 s/it, one unit, no dead half. Scaled from Bryan's own recorded ai-toolkit
-  // runs — 2.17, 3.66, 4.41, 5.09, 6.08 and 30.07 s/it. NOTHING he has ever trained ran faster
-  // than 1 it/s, so on the sampling face all six jobs pile up within a few degrees of centre and
-  // half the arc is spent on speeds no trainer reaches. Chosen from a live side-by-side mockup,
-  // 2026-08-13 (renderer/mock-train-dial.html, "face B").
-  //
-  // Labels descend left to right (60 … 1) BECAUSE the underlying scale is still it/s. Drawing it
-  // the other way round — 1 on the left, 60 on the right — was tried and rejected: it reads more
-  // naturally alone, but in a mixed rack needle-right would mean "fast" on a generation module
-  // and "slow" on the training module beside it.
-  training: {
-    minLog: -Math.log10(60),
-    maxLog: 0,
-    units: { slow: 'sec/iter', single: true },
-    marks: [
-      { v: 1 / 60, label: '60' }, { v: 1 / 40 }, { v: 1 / 30 },
-      { v: 1 / 20, label: '20' }, { v: 1 / 15 },
-      { v: 1 / 10, label: '10' }, { v: 1 / 7 },
-      { v: 1 / 5, label: '5' }, { v: 1 / 4 }, { v: 1 / 3 },
-      { v: 1 / 2, label: '2' }, { v: 1 / 1.5 },
-      { v: 1, label: '1' },
-    ],
-  },
-};
-
 /** it/s -> 0..1 across the face. Clamped: a rate off the end parks the needle at the stop. */
 function meterPos(face, itPerSec) {
   const lg = Math.log10(itPerSec);

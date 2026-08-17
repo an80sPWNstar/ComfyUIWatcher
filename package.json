@@ -39,7 +39,12 @@
     "extraResources": [
       {
         "from": "comfyui-relay",
-        "to": "comfyui-relay"
+        "to": "comfyui-relay",
+        "filter": [
+          "**/*",
+          "!__pycache__",
+          "!**/*.pyc"
+        ]
       }
     ],
     "win": {

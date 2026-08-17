@@ -79,7 +79,12 @@ function load() {
 
 function save(hosts) {
   const validated = validate(hosts);
-  fs.writeFileSync(configPath(), JSON.stringify(validated, null, 2));
+  // Write-then-rename, so a crash mid-write cannot leave a half-written hosts.json — load() treats
+  // an unparseable file as "no config" and would silently reset the whole rack to the defaults.
+  const file = configPath();
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(validated, null, 2));
+  fs.renameSync(tmp, file);
   return validated;
 }
 

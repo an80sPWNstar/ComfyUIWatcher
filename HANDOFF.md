@@ -743,3 +743,14 @@ Two asks off screenshots of the running build, both done and looked at:
 - Open, unchanged: ROCm detection is unit-tested only; the pack's README images are mock renders
   rather than captures from a real canvas; the pack still lives in a subfolder of this repo and
   probably wants its own before a Reddit post.
+
+## 2026-08-16 19:55 -- pre-publish once-over (Fable session)
+Publish-readiness audit + fixes, all in working tree, NOT committed:
+- _emit() now no-ops after stop() in both collectors (late WS-close/poll re-added removed host to service.latest = permanent ghost card).
+- hosts.js save() writes tmp+rename (crash mid-write was silently resetting rack to defaults).
+- main.js: sandbox:true, deny window.open + will-navigate. Verified live: bridge works, cards render.
+- relay __init__.py: /watcher/host_info driver probe moved off the event loop (asyncio.to_thread; first probe could block ComfyUI 5-10s).
+- extraResources now filters __pycache__/*.pyc out of the installer.
+- Root README rewritten for the launch; setup-panel "five nodes" -> unnumbered; dead FACES const removed from lcd.js; stale comments fixed.
+- Tests 5/5, py_compile OK, app relaunched detached and up.
+BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (Bryan's registry account). Electron 31 is EOL - flagged, not upgraded. If relay __init__.py ships, re-copy into BOTH installs' custom_nodes + restart.

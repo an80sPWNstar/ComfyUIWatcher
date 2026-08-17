@@ -41,8 +41,6 @@ const ITEM_SAMPLES_KEPT = 8;
 const WebSocketImpl = globalThis.WebSocket ?? require('ws');
 const FINISHED_HOLD_MS = 10000; // how long a finished job stays on the card before it clears to Idle
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 10000]; // caps at 10s
-// How long a job must have been running, with no watcher.* traffic, before we will say the relay
-// is missing. A relay speaks within a step of the job starting; this is generous on purpose.
 // How long a job must run with no watcher.* traffic before we call the relay absent.
 //
 // 10s was WRONG and produced a false "no relay — steps unavailable" against a host whose relay was
@@ -136,7 +134,7 @@ class ComfyUIClient {
     this.queueRemaining = null;
     this.currentJob = null; // {promptId, node, step, maxSteps, stepsPerSec, startedAt, etaSec}
     this.system = null; // crystools.monitor payload, or null if not installed
-    this.versions = null; // {comfyui, pytorch, cuda, driver, python} — see parseSystemStats
+    this.versions = null; // {comfyui, pytorch, accel, accelVersion, python, driver} — see parseSystemStats
     this._progressHistory = []; // [{value, atMs, node}] recent samples for the step-rate estimate
     this._nodeNames = {}; // node id -> _meta.title || class_type, from the running prompt's graph
     this._batchTotals = {}; // node id -> how many list items that node will run (relay only)
@@ -653,6 +651,10 @@ class ComfyUIClient {
   }
 
   _emit() {
+    // A stopped collector must never speak again: stop() closes the socket, and the close event
+    // (or an in-flight poll) lands AFTER WatcherService has already deleted this host's snapshot —
+    // one late emit would re-add it and leave a ghost card in the rack forever.
+    if (this._closed) return;
     const now = Date.now();
     if (
       this.currentJob &&

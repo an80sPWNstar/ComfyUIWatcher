@@ -182,6 +182,8 @@ def _watcher_driver_version():
 
 
 try:
+    import asyncio
+
     from aiohttp import web
     from server import PromptServer  # re-imported: the blocks above may have failed
 
@@ -190,7 +192,10 @@ try:
         @PromptServer.instance.routes.get("/watcher/host_info")
         async def _watcher_host_info(request):
             # Only what the watcher cannot get from stock endpoints. Everything else it already has.
-            return web.json_response({"driver": _watcher_driver_version()})
+            # Off the event loop: the first (uncached) probe may shell out to nvidia-smi/rocm-smi
+            # with a 5s timeout, and blocking ComfyUI's loop for that long would stall every
+            # WebSocket client on the box for one cosmetic version string.
+            return web.json_response({"driver": await asyncio.to_thread(_watcher_driver_version)})
 
         PromptServer._watcher_hostinfo_installed = True
         logging.info("comfyuiWATCHER relay: /watcher/host_info installed")

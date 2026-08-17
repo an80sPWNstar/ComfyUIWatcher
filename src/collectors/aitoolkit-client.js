@@ -302,6 +302,10 @@ class AIToolkitClient {
   }
 
   _emit() {
+    // A stopped collector must never speak again: an in-flight _poll can resolve after stop(),
+    // when WatcherService has already deleted this host's snapshot — one late emit would re-add
+    // it and leave a ghost card in the rack forever. Same guard as ComfyUIClient.
+    if (this._closed) return;
     const now = Date.now();
     if (
       this.currentJob &&

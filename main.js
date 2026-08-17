@@ -46,9 +46,15 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+
+  // The renderer is a local file that talks to main over the contextBridge and nothing else —
+  // it has no business opening windows or navigating anywhere, so both are refused outright.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
