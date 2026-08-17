@@ -754,3 +754,28 @@ Publish-readiness audit + fixes, all in working tree, NOT committed:
 - Root README rewritten for the launch; setup-panel "five nodes" -> unnumbered; dead FACES const removed from lcd.js; stale comments fixed.
 - Tests 5/5, py_compile OK, app relaunched detached and up.
 BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (Bryan's registry account). Electron 31 is EOL - flagged, not upgraded. If relay __init__.py ships, re-copy into BOTH installs' custom_nodes + restart.
+
+## 2026-08-16 20:4x -- Electron 31 -> 43 upgrade (branch: electron-upgrade; picked up after crash)
+- Machine crashed right after the previous session branched `electron-upgrade` -- zero work was on
+  it. Recovered state: main = 0c51016 (audit fixes + relay-standalone COMMITTED, contradicting the
+  19:55 entry's "NOT committed"), main is AHEAD OF ORIGIN BY 2, not pushed. `nodes-pack` branch =
+  subtree split of comfyui-relay for the future standalone repo.
+- UPGRADED on this branch: electron ^31.7.7 -> ^43.4.0 (latest stable), electron-builder ^25 ->
+  ^26.0.12. Main process is now Node 24.18 / Chromium 150.
+- **The `globalThis.WebSocket` branch in comfyui-client.js ran for the FIRST TIME EVER** (Node 24 has
+  undici's global WS; Node 20 didn't). Verified live: New Main ONLINE through it, real Flux2-Klein
+  job on the reactor panel, zero page errors. Binary preview frames arrive as Blob instead of
+  Buffer, but _handleMessage JSON.parse-rejects both identically -- no code change needed. Comment
+  at the WebSocketImpl line updated.
+- DRIVER window reads 610.88 live -- the relay's /watcher/host_info route is finally loaded on
+  New Main (instance got restarted since 08-14).
+- electron postinstall AV-strip quirk: this time dist/ was MISSING entirely after npm install
+  (no zip in cache); `cd node_modules/electron && node install.js` downloaded + extracted clean and
+  SURVIVED -- no Expand-Archive workaround needed. Verify electron.exe exists either way.
+- electron-builder 26 + Electron 43: `--dir` build packs and the packaged exe launches with a window.
+  NSIS/Linux installers NOT built -- this is a branch commit, not a release.
+- npm test 5/5. App relaunched detached from source (Electron 43), window up.
+- NEXT: Bryan uses the app on E43 for a while; if good, merge electron-upgrade -> main, ship as
+  0.0.9 (remember main's 2 unpushed commits go with it). WSL still down, so any release is
+  Windows-only until virtualization is fixed. playwright-core was installed --no-save for the
+  verification; a fresh npm install drops it again.

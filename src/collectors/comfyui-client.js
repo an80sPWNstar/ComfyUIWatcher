@@ -34,10 +34,11 @@ const RATE_MIN_SAMPLES_KEPT = 4;
 // median chasing every wobble; short enough that a run which genuinely slows down is reflected.
 const ITEM_SAMPLES_KEPT = 8;
 
-// Electron 31's main process embeds Node 20.18, which has NO global WebSocket (that landed in
-// Node 22) — discovered live 2026-08-11 when every card sat "offline" against a running server.
-// The `ws` package exposes the same onopen/onmessage/onerror/onclose API, so prefer the global
-// when a future Electron/Node provides it and fall back to `ws` otherwise.
+// Electron 43's main process embeds Node 24, whose global WebSocket (undici) is what runs here —
+// verified live 2026-08-16 against a real ComfyUI. The `ws` fallback covers Electron ≤31 (Node 20
+// has no global WebSocket; every card sat "offline" on 2026-08-11 when this was assumed present).
+// Both expose the same onopen/onmessage/onerror/onclose API; binary frames differ (Blob vs
+// Buffer) but _handleMessage ignores anything that is not JSON text either way.
 const WebSocketImpl = globalThis.WebSocket ?? require('ws');
 const FINISHED_HOLD_MS = 10000; // how long a finished job stays on the card before it clears to Idle
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 10000]; // caps at 10s
