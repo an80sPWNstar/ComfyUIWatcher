@@ -132,26 +132,30 @@
 
   function createTwinDial(faceName) {
     let kind = faceName;
-    const svg = svgTag('svg', { viewBox: '0 0 240 120', class: 'p-svg' });
+    // 264 wide, not 240: the type pass grew the figure to 23 units, and at 240 the digits reached
+    // into each movement's arc ring (rim tops out at pivot+70; "21.25" spans ~57 units about the
+    // centre). The extra 24 units all go to the centre column, the movements themselves are
+    // untouched (Bryan, 2026-08-16: "the digital numbers overlap onto the dials").
+    const svg = svgTag('svg', { viewBox: '0 0 264 120', class: 'p-svg' });
     // overflow hidden, unlike the other instruments: the pivots sit on the face edge, and two red
     // hubs sitting out in the open were the giveaway that this was two little meters rather than
     // one cluster with two movements.
     svg.style.overflow = 'hidden';
     // ONE face behind both movements, not two — a cluster is a single panel with two pointers
     // printed on it, and two abutting rectangles read as two instruments that happen to touch.
-    svg.appendChild(svgTag('rect', { x: 2, y: 2, width: 236, height: 116, rx: 18, class: 't-face' }));
+    svg.appendChild(svgTag('rect', { x: 2, y: 2, width: 260, height: 116, rx: 18, class: 't-face' }));
 
     // Baselines are set apart by more than the ink needs: the figure grew to 23 units in the
     // 2026-08-16 type pass and its descenders would otherwise sit in the unit word's ascenders.
-    const readVal = svgTag('text', { x: 120, y: 56, class: 't-read' });
-    const readUnit = svgTag('text', { x: 120, y: 73, class: 't-read-unit' });
-    const noRate = svgTag('text', { x: 120, y: 89, class: 'm-nosig' });
+    const readVal = svgTag('text', { x: 132, y: 56, class: 't-read' });
+    const readUnit = svgTag('text', { x: 132, y: 73, class: 't-read-unit' });
+    const noRate = svgTag('text', { x: 132, y: 89, class: 'm-nosig' });
     noRate.textContent = 'NO RATE';
 
     const halves = [];
     for (const side of ['left', 'right']) {
       const mirror = side === 'right';
-      const px = mirror ? 216 : 24;
+      const px = mirror ? 240 : 24;
       const py = 60;
       const R = 52;
       const sign = mirror ? -1 : 1; // which way this movement sweeps away from its pivot

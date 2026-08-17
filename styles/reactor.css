@@ -451,13 +451,28 @@ svg.p-svg {
    on the panel to read (Bryan, 2026-08-16). Mixing it down to a dark tint keeps the state signal
    (amber running, jade done, red fault) while giving it the contrast printed ink has. The console
    idiom is untouched: its face is glass and the figure there IS light. */
-.pan--room .t-read { fill: color-mix(in srgb, var(--lit) 40%, #140F09); }
+/* Bryan's pick, 2026-08-16 (third pass, live A/B in mock-skins): the digits are ALMOST BLACK with
+   a faint --lit halo along each glyph's outline — solid colour mixes all failed (40% read brown,
+   62% read plain orange, and a plain drop-shadow glow swamped the thin mono strokes and read
+   orange again). paint-order:stroke draws the halo UNDER the fill so the dark core stays crisp;
+   the drop-shadow only softens the rim. State colours (amber/jade/red) live in the halo. */
+.pan--room .t-read,
 .pan--room .t-read-unit {
-  fill: color-mix(in srgb, var(--lit) 40%, #140F09);
-  fill-opacity: 0.72;
+  fill: #17100A;
+  stroke: color-mix(in srgb, var(--lit) 60%, transparent);
+  stroke-width: 1px;
+  paint-order: stroke;
+  filter: drop-shadow(0 0 1.6px color-mix(in srgb, var(--lit) 40%, transparent));
 }
+.pan--room .t-read-unit { fill-opacity: 0.72; }
 /* Needs the extra class to beat the room rule above, which would otherwise repaint a resting
-   readout as though it were a measurement. */
+   readout as though it were a measurement — and now also to strip the halo, or the resting "--"
+   would glow as if it were a reading. */
+.pan--room .p-inst--nosig .t-read,
+.pan--room .p-inst--nosig .t-read-unit {
+  stroke: none;
+  filter: none;
+}
 .pan--room .p-inst--nosig .t-read { fill: color-mix(in srgb, var(--p-glass-ink) 55%, transparent); }
 
 /* ── Step counter ──

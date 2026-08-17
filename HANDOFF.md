@@ -779,3 +779,23 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   0.0.9 (remember main's 2 unpushed commits go with it). WSL still down, so any release is
   Windows-only until virtualization is fixed. playwright-core was installed --no-save for the
   verification; a fresh npm install drops it again.
+
+## 2026-08-16 21:5x -- twin-dial fixes recovered after crash (branch: electron-upgrade)
+
+- Machine crashed again mid-session (~21:31 area, second night running). In flight and left
+  uncommitted in the tree, recovered and verified this session:
+  1. Twin-dial SVG widened 240 -> 264 (`createTwinDial`, reactor-panel.js): the 2026-08-16 type
+     pass grew the figure to 23 units and at 240 the digits reached into both arc rings -- Bryan:
+     "the digital numbers overlap onto the dials". All 24 extra units go to the centre column;
+     pivots stay 24 units in from each edge, movements untouched.
+  2. Control-room dial figure is now NEAR-BLACK INK WITH A --lit HALO (`paint-order: stroke`,
+     reactor.css) -- Bryan's pick, third pass in a live A/B: 40% mix read brown, 62% read plain
+     orange, plain drop-shadow swamped the thin mono strokes. State colour (amber/jade/red) lives
+     in the halo. `.p-inst--nosig` strips stroke+filter, or a resting "--" would glow like a
+     reading. Console idiom untouched (its figure IS light).
+- Verified in mock-skins over http-server: room idiom live (15.51 s/it clear of both arcs, halo
+  crisp), room resting (dim --, no halo, NO RATE), console idiom unaffected by the wider viewBox.
+  CSS caps are height-only so the 2.2:1 aspect just renders shorter; nothing assumes 240.
+  npm test 5/5.
+- COMMITTED on electron-upgrade. Still 0.0.8, nothing released; the branch still awaits Bryan's
+  E43 verdict before the 0.0.9 merge/ship.
