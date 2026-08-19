@@ -899,3 +899,30 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   `$(...)` in the quoted string get expanded on the Windows side, not in WSL -- `R=/path; ls $R`
   silently ran `ls` in the repo. Use literal absolute paths in WSL one-liners.
 - Bryan's own 0.0.9 instance was still running alongside; left alone. A 0.0.10 window is up.
+
+## 2026-08-18 19:15 -- dependency sweep; v0.0.10 assets REPLACED on the same tag
+- Bryan: "make sure every package used is as up to date as possible."
+- electron 43.4.0 and ws 8.21.3 are already the newest published STABLE (Electron 44 exists only as
+  44.0.0-beta.5). npm audit 0 vulns. The relay's pyproject declares no dependencies at all.
+- **electron-builder was silently behind and `npm outdated` said nothing.** The registry's `latest`
+  dist-tag still points at 26.15.3 (2026-06-09) while the v26 line has moved to 26.15.7
+  (2026-07-18); npm prefers the `latest` tag when it satisfies the range, so `^26.0.12` kept
+  resolving backwards. Now PINNED to an exact 26.15.7 -- a caret range would drift back.
+- **The fix that mattered: electron-builder #9983.** 7za 24.09 applies the BCJ2 filter to executable
+  content and the Nsis7z extractor inside the installer cannot decode it, so an NSIS install can
+  drop the main exe and every DLL and still exit 0, silently. Config in the issue is ours exactly
+  (nsis, oneClick, perMachine false, x64) and it reproduces on 26.15.3.
+- **We were NOT hit, and this was checked rather than assumed:** 0.0.9's payload packs
+  comfyuiWATCHER.exe + all DLLs in a BCJ2 block, and Bryan's installed 0.0.9 at
+  %LOCALAPPDATA%\Programs\comfyuiwatcher has all ten PE files and runs. Same bits ship to every
+  downloader, so the decoder either works for everyone or nobody. It works.
+- Rebuilt all three on 26.15.7 anyway: payload is now `Method = BCJ LZMA2:20`, no BCJ2 anywhere,
+  installer 100.5 MB -> 108.6 MB. Bryan chose to REPLACE the v0.0.10 assets (gh release upload
+  --clobber) rather than cut 0.0.11, so the tag now carries 26.15.7 builds and the notes say why.
+- playwright-core 1.62.1 was installed but UNDECLARED (npm called it extraneous) -- it is the
+  screenshot driver CLAUDE.md documents, so any npm install could have pruned it. Now a devDep.
+- Verify-the-installer lesson: every ship so far checked `win-unpacked`, which is the directory
+  BEFORE the NSIS payload is packed. That path would never have caught #9983. To inspect a payload:
+  `7z e "dist/...Setup <v>.exe" -o<dir> '$PLUGINSDIR/app-64.7z'` then `7z l -slt` and read Method.
+- A running win-unpacked instance LOCKS d3dcompiler_47.dll and fails the next build with EPERM.
+  Stop only the win-unpacked processes; Bryan's installed copy is a different path, leave it.
