@@ -621,17 +621,27 @@ because from the desk "what does the rack look like" is one question.
 
 Everything on the panel is driven by a field a collector actually reports — that is what makes the
 density honest, and it is the rule to hold any addition to:
-- **Annunciator bank**, 9 tiles: Reactor Run / Queued / Batch Run / No Step Data / Relay Absent /
-  Cycle Done / Fault / Offline / **Link Up**. The ninth was added 2026-08-18: the other eight are
-  all "busy" or "wrong", so a connected idle host lit **nothing at all**, and eight dark tiles over
-  a grey jewel is exactly what an app talking to nobody shows. LINK UP is the one positive lamp —
-  a server is answering — and it sits beside OFFLINE because they are two halves of one fact.
-  **The bank's column count IS the tile count**: `repeat(9, 1fr)` wide, `repeat(3, 1fr)` narrow.
-  Left at 8 and 4, the ninth lamp wrapped onto a row of its own and the bank grew a ragged
-  half-empty line (measured +29px of panel for one tile). **An unlit tile is a real "not true"**, never "no room left". A tile
-  flashes 3× on first becoming true, then holds. `relay` was the only snapshot field the rack card
-  ignored; here it has a lamp, and it follows the collector's own rule (false is claimed only after
-  a job has run 10s with no relay traffic, so an idle host never accuses anyone).
+- **Annunciator bank, ONE ROW OF FOUR**: Reactor Run / Cycle Done / Fault / Offline (cut from nine
+  on 2026-08-18 — "waaay too many long rectangle boxes"). An unlit tile is still a real "not true".
+  The bank now carries only states with no other voice on the panel; what was dropped still speaks:
+  Queued → the QUEUE figure on the tell-tale line, Batch Run → the WORKFLOW bulb row (which exists
+  only on a batch job), No Step Data → STEPS LEFT already printing N/A, Link Up → the header pill
+  below. **Relay Absent is the one that lost its only surface here** and is now reported per host
+  only in the (i) setup panel; if it needs a lamp again it needs one of these four slots, not a
+  fifth. Tiles are **capped at 186px and clustered left**, not stretched to `1fr`: four tiles across
+  a wide panel are 270px slabs, which is fewer boxes but longer ones — the same complaint. The
+  panel's width belongs to the instruments.
+- **The link lives in the header, not the bank** (`.p-link`, hard right): a lit pill reading
+  **LINK UP** jade / **LINKING** amber / **OFFLINE** red. Exactly one is always lit, so an unlit
+  header is not a state a reachable host can produce. It is in the header because it is a fact
+  about the *connection*, not about the run — and in the bank it was just one more long rectangle.
+- **The status word is an instrument, not a label.** `.p-hstat` (ONLINE/OFFLINE/CONNECTING) never
+  changed appearance once painted; it now **ticks jade on every snapshot the collector pushes**
+  ("make the ONLINE do something other than do nothing", 2026-08-18). That is a claim the pill
+  cannot make: the pill says a link exists, the tick proves data is still arriving, so a link that
+  died without closing shows a frozen word. Implemented as **two alternating class names**
+  (`--beat-a`/`--beat-b`) so the animation restarts on a changed name rather than a forced reflow
+  twice a second per panel. Both are disabled under `prefers-reduced-motion`.
 - **Twin rate dials** — the rack card's single face split at the crossover and mirrored, pivots at
   the outer edges, both arcs closing inward around the readout (Bryan picked this facing over
   back-to-back on 2026-08-13). Both movements read UP for more; "further right is faster" cannot

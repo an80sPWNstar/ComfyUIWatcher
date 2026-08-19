@@ -708,20 +708,20 @@
   // Eight tiles, every one a real collector condition. `relay` is the only snapshot field the rack
   // card ignores; here it gets a lamp, and it follows the collector's own rule — false is claimed
   // only after a job has run 10s with no relay traffic, so an idle host never accuses anyone.
+  // ONE ROW OF FOUR (Bryan, 2026-08-18: "waaay too many long rectangle boxes"). The bank now
+  // carries only the states that have no other voice on the panel. What was dropped, and where the
+  // fact still lives, because a lamp is not the only way a panel can say something:
+  //   Queued       -> the QUEUE figure on the tell-tale line
+  //   Batch Run    -> the WORKFLOW bulb row, which exists ONLY on a batch job
+  //   No Step Data -> STEPS LEFT already prints N/A, which is the same statement
+  //   Link Up      -> moved into the header as a lit pill, see LINK below
+  // Relay Absent is the one that lost its only surface here; it is still reported per host in the
+  // (i) setup panel. If it needs a lamp again it needs one of these four slots, not a fifth.
   const ANNUNCIATORS = [
     { key: 'run', text: 'Reactor Run', tone: 'run' },
-    { key: 'queue', text: 'Queued', tone: 'wait' },
-    { key: 'batch', text: 'Batch Run', tone: 'run' },
-    { key: 'nosteps', text: 'No Step Data', tone: 'wait' },
-    { key: 'relay', text: 'Relay Absent', tone: 'wait' },
     { key: 'done', text: 'Cycle Done', tone: 'ok' },
     { key: 'fault', text: 'Fault', tone: 'err' },
     { key: 'offline', text: 'Offline', tone: 'err' },
-    // The bank's other eight lamps are all "busy" or "wrong", so a healthy idle host lit NOTHING
-    // and read exactly like an app talking to nobody ("it's too easy to think comfyui isn't
-    // running and that causes issues" — Bryan, 2026-08-18). LINK UP is the one positive lamp:
-    // a server is answering. It sits beside OFFLINE because they are the two halves of one fact.
-    { key: 'link', text: 'Link Up', tone: 'ok' },
   ];
 
   // What a panel of each kind reads. Same split as the rack card's KINDS: a trainer differs only in
@@ -799,7 +799,12 @@
     const name = span('p-name', hostName);
     const mode = span('p-mode');
     const stat = span('p-hstat');
-    head.append(jewel, unit, name, mode, stat);
+    // THE LINK LAMP LIVES IN THE HEADER, not in the bank: it is a fact about the panel itself
+    // rather than about the run, and down in the bank it was one more long rectangle in a row of
+    // them. Reads LINK UP / LINKING / OFFLINE, and exactly one of those is always lit, so an
+    // unlit header is not a state a reachable host can produce.
+    const link = span('p-link');
+    head.append(jewel, unit, name, mode, stat, link);
 
     const ann = div('p-ann');
     const tiles = {};
@@ -890,7 +895,7 @@
     pan.append(head, ann, row, recorder.box, leds, plate);
 
     pan._reactor = {
-      spec, train, tiles, jewel, mode, stat, dial, pct, steps, recorder,
+      spec, train, tiles, jewel, mode, stat, link, beat: 0, dial, pct, steps, recorder,
       rateBox, progBox, stepsBox, etaBox, etaWin, minis, windows,
       leds: { step: ledStep, flow: ledFlow },
       plate: { model: pModel, size: pSize, count: pCount, process: pProcess },
@@ -924,6 +929,22 @@
 
     pan.dataset.status = status;
     p.stat.textContent = status;
+    // The pill states the link; the status word PROVES it. `status` alone never changed appearance
+    // once painted, so it read as a printed label rather than an instrument ("make the ONLINE do
+    // something other than do nothing" — Bryan, 2026-08-18). It now ticks on every snapshot the
+    // collector pushes, which is a live-traffic claim the socket's own state cannot make: a link
+    // that died without closing shows a frozen word.
+    p.link.textContent = online ? 'Link Up' : status === 'connecting' ? 'Linking' : 'Offline';
+    p.link.dataset.state = online ? 'up' : status === 'connecting' ? 'wait' : 'down';
+    if (online) {
+      // Two alternating classes rather than remove/reflow/add: the animation restarts because the
+      // NAME changed, with no forced layout twice a second per panel.
+      p.beat ^= 1;
+      p.stat.classList.toggle('p-hstat--beat-a', p.beat === 0);
+      p.stat.classList.toggle('p-hstat--beat-b', p.beat === 1);
+    } else {
+      p.stat.classList.remove('p-hstat--beat-a', 'p-hstat--beat-b');
+    }
     pan.classList.toggle('pan--run', running);
     pan.classList.toggle('pan--ok', job?.finished === 'success');
     pan.classList.toggle('pan--err', job?.finished === 'error' || !online);
@@ -953,14 +974,9 @@
     // ── Annunciators ──
     const lit = {
       run: running,
-      queue: !!queue,
-      batch: running && (job.passTotal ?? 0) > 1,
-      nosteps: running && !hasSteps,
-      relay: snapshot?.relay === false,
       done: job?.finished === 'success',
       fault: job?.finished === 'error',
       offline: !online,
-      link: online,
     };
     for (const a of ANNUNCIATORS) {
       const tile = p.tiles[a.key];

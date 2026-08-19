@@ -954,3 +954,19 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   the OLD design minutes after an edit. Server now runs `-c-1` AND the mock's script/style tags carry
   `?dev`. If a mock ever looks like an edit did not land, suspect this first.
 - npm test 5/5. Version still 0.0.10 -- NOTHING REBUILT OR RELEASED for this yet.
+
+## 2026-08-18 21:10 -- bank cut to four, link moved to the header, ONLINE given a job
+- Bryan on the 9-tile bank: "waaay too many long rectangle boxes." Now ONE ROW: Reactor Run /
+  Cycle Done / Fault / Offline. Dropped tiles still speak elsewhere (Queued -> tell-tale QUEUE,
+  Batch Run -> WORKFLOW bulb row, No Step Data -> STEPS LEFT printing N/A). **Relay Absent lost its
+  only lamp on the panel** -- still in the (i) setup panel, flagged to Bryan.
+- Tiles are capped at 186px and clustered left. At `1fr` four tiles became 270px slabs: fewer boxes,
+  longer ones, same complaint. Do not put `1fr` back.
+- LINK UP moved into the header as `.p-link`, hard right: LINK UP / LINKING / OFFLINE, exactly one
+  always lit.
+- `.p-hstat` (the ONLINE word) now ticks jade on every pushed snapshot. Two alternating class names
+  restart the animation without a forced reflow twice a second per panel. Reduced-motion disables it.
+- Verified live (both hosts) plus the mock for states a live rack cannot produce: 4 tiles in 1 row
+  with exactly those names, `hstat-beat-a`/`-b` alternating with the colour cycling jade->slate, and
+  the pill reading Link Up #46C68F / Offline #E24B3A / Linking #E0B341 across a full flap cycle.
+- npm test 5/5. Still 0.0.10, nothing rebuilt or released.

@@ -195,6 +195,59 @@ body.layout-reactor.size-large { --card-min: 660px; }
   flex: none;
 }
 
+/* ── LINK pill: the one thing in the header that says a server is answering ──
+   Sits hard right, in the annunciator's own visual language (lit block, dark text) so it reads as
+   an indicator rather than a label — but in the HEADER, because it is a fact about the connection
+   and not about the run. Exactly one of its three states is lit at any time. */
+.p-link {
+  flex: none;
+  margin-left: 10px;
+  padding: 3px 9px 2px;
+  border-radius: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #1A1206;
+  background: var(--p-idle);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+  transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.p-link[data-state='up'] {
+  background: var(--p-ok);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--p-ok) 60%, transparent), 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
+
+.p-link[data-state='down'] {
+  background: var(--p-err);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--p-err) 55%, transparent), 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
+
+.p-link[data-state='wait'] {
+  background: var(--p-wait);
+  animation: link-wait 1s steps(1) infinite;
+}
+
+@keyframes link-wait { 50% { opacity: 0.35; } }
+
+.pan--console .p-link { border-radius: 7px; color: #05070B; }
+
+/* The status word ticks once per snapshot pushed — see the comment in updateReactorPanel. Two
+   alternating names so the animation restarts without a forced reflow. */
+.p-hstat--beat-a { animation: hstat-beat-a 500ms ease-out; }
+.p-hstat--beat-b { animation: hstat-beat-b 500ms ease-out; }
+
+@keyframes hstat-beat-a {
+  0% { color: var(--p-ok); text-shadow: 0 0 9px color-mix(in srgb, var(--p-ok) 70%, transparent); }
+  100% { color: var(--p-dim); text-shadow: none; }
+}
+
+@keyframes hstat-beat-b {
+  0% { color: var(--p-ok); text-shadow: 0 0 9px color-mix(in srgb, var(--p-ok) 70%, transparent); }
+  100% { color: var(--p-dim); text-shadow: none; }
+}
+
 /* ── Annunciator bank ── */
 /* NINE across on a panel wide enough to read them, three rows of three below that. A control room
    packs its annunciators into one bank; extra rows here cost 28px of panel for nothing but habit.
@@ -203,7 +256,12 @@ body.layout-reactor.size-large { --card-min: 660px; }
    line. 9 and 3 both divide it exactly. */
 .p-ann {
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  /* CAPPED, NOT STRETCHED. Four tiles across a wide panel at 1fr each are 270px slabs — fewer
+     boxes than before but longer ones, which is the other half of the same complaint. A real
+     annunciator is a small block; they cluster at the left of the bank and the panel's width goes
+     to the instruments, which are the things that actually need it. */
+  grid-template-columns: repeat(4, minmax(0, 186px));
+  justify-content: start;
   gap: 4px;
   margin-bottom: 9px;
 }
@@ -1042,8 +1100,10 @@ svg.p-svg {
 /* Two rows of four annunciators once eight across would be unreadable. This is a wider breakpoint
    than the layout one below: the tiles run out of room for their words long before the instruments
    run out of room to sit abreast. */
-@container (max-width: 760px) {
-  .p-ann { grid-template-columns: repeat(3, 1fr); }
+/* FOUR SHORT WORDS FIT ON ONE ROW MUCH FURTHER DOWN than nine did, so the bank no longer regrids
+   at 760px — it stays one row until the panel itself is narrow, and only then goes 2x2. */
+@container (max-width: 430px) {
+  .p-ann { grid-template-columns: repeat(2, 1fr); }
 }
 
 @container (max-width: 470px) {
@@ -1061,6 +1121,12 @@ svg.p-svg {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .p-hstat--beat-a,
+  .p-hstat--beat-b,
+  .p-link[data-state='wait'] {
+    animation: none;
+  }
+
   .p-tile--new,
   .p-bulb--strike,
   .pan--room .p-bulb--on,
