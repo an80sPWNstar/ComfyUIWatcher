@@ -879,3 +879,23 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
 - NOTE: the v0.0.9 installer was built BEFORE this, so the relay bundled in the released exe still
   polls at 2s. Bryan's own installs are current. Fold into the next release, or rebuild if it
   matters sooner.
+
+## 2026-08-18 18:40 -- v0.0.10 SHIPPED, all three installers level
+- Bryan: "bring all the installers to the same level." One version cut from one commit (9053633):
+  Windows exe, Linux AppImage, Linux deb. Release
+  https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.10 -- all three assets uploaded.
+- **WSL2 IS BACK.** HypervisorPresent=True, firmware virt enabled, Ubuntu Running (kernel
+  6.6.114.1), node v22.23.1. The 2026-08-16 block is over; Linux builds work again.
+- `~/cw-build/node_modules` was STALE -- electron-builder 25 / electron 31, two releases behind the
+  repo's 43/26. `npm install` there before any future Linux build; the rsync does not carry
+  node_modules, so a stale WSL tree will silently build the old Electron.
+- Linux skipped 0.0.8 and 0.0.9 entirely (never built). The AppImage/deb therefore pick up the whole
+  Electron 43 upgrade, the NVML v2 VRAM work, the stage counter + subgraph id fix, and the reactor
+  dial fix in one jump.
+- Verified: npm test 5/5; relay hashed INSIDE all three packages against the repo, byte-identical in
+  each (watcher-steps.js eea3c20e..., DEVICE_POLL_MS 1000); packaged win-unpacked exe launched,
+  ProductVersion 0.0.10.0, window title comfyuiWATCHER.
+- Gotcha for the next session: inside `wsl.exe -- bash -c '...'` from Git Bash, shell VARIABLES and
+  `$(...)` in the quoted string get expanded on the Windows side, not in WSL -- `R=/path; ls $R`
+  silently ran `ls` in the repo. Use literal absolute paths in WSL one-liners.
+- Bryan's own 0.0.9 instance was still running alongside; left alone. A 0.0.10 window is up.
