@@ -989,3 +989,22 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   4. Still nothing for: window state persistence + tray, a UI to EDIT a host, other trainers.
 - `renderer/mock-link-lamp.html` is kept: its "Today" block is the shipped design, and blocks A-E
   are the candidates Bryan chose from (he picked A+B). Serve with `npx http-server . -p 8791 -c-1`.
+
+## 2026-08-18 23:10 -- v0.0.11 SHIPPED (all three), session really closed
+- Bryan: "I probably won't change anything for a while so do what is needed" -> cut the release that
+  was sitting unreleased on main.
+- https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.11 -- exe + AppImage + deb, all
+  from commit a021919 on electron-builder 26.15.7. The connected-indicator work is now IN a build:
+  jade standby colour, LINK lamp on the card, 4-tile bank + header LINK pill + ticking ONLINE word
+  on the reactor panel.
+- Verified: npm test 5/5; relay hashed inside the package, byte-identical to the repo; NSIS payload
+  has no BCJ2 block (`Method = BCJ LZMA2:20`); the new UI confirmed present in app.asar by marker
+  (p-link x7, hstat-beat-a x2, jc-link-lamp x5) rather than trusting the files glob; packaged exe
+  launched, ProductVersion 0.0.11.0, window up.
+- The strings "Relay Absent" / "No Step Data" / "Batch Run" still appear ONCE each in the asar --
+  that is the comment in reactor-panel.js recording where each dropped fact went, not live code.
+  Do not read that as a stale build.
+- Nothing is in flight. Open items unchanged from the 21:20 entry: Bryan has not lived with the new
+  indicator yet; `connecting` still lights the OFFLINE tile while the header pill says LINKING;
+  Relay Absent has no panel lamp; and the older backlog (window state + tray, host EDIT UI, other
+  trainers) is untouched.
