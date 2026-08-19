@@ -29,6 +29,17 @@
 
   <style>
     /* ── Page chrome (mock only — none of this ships) ────────────────────────────────── */
+    /* THE APP'S STYLESHEET IS BUILT FOR A WINDOW THAT NEVER PAGE-SCROLLS: main.css sets
+       `body { height: 100vh; overflow: hidden }` and only #cards scrolls. This mock is a long
+       document instead, so it has to hand scrolling back to the page — otherwise the blocks
+       overflow with NO scrollbar, and `overflow-anchor` quietly drags the hidden scroll position
+       every time a needle or a split-flap mutates, which reads as the page scrolling itself.
+       (Bryan, 2026-08-18: "why is it auto scrolling? let me use a scroll bar.") */
+    html, body { height: auto !important; overflow: visible !important; }
+    #app { height: auto !important; min-height: 100vh; }
+    #blocks, .mk-row, .mk-grid { overflow-anchor: none; }
+    #topbar { position: sticky; top: 0; z-index: 20; }
+
     .mk-head { padding: 14px 18px 4px; }
     .mk-h1 { font-family: var(--font-legend, sans-serif); font-size: 15px; letter-spacing: .14em;
              text-transform: uppercase; color: var(--legend-hi, #cfd6db); margin: 0 0 4px; }
