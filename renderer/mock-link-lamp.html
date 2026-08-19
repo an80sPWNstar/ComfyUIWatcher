@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>comfyuiWATCHER — "is it connected?" indicator candidates</title>
+  <!-- THE QUESTION THIS PAGE EXISTS TO SETTLE (Bryan, 2026-08-18): a host that IS connected to a
+       running ComfyUI reads too much like a host that is not, so it is easy to think ComfyUI is
+       down when it is fine.
+
+       The cause is one line: an online-but-idle card and an offline card both resolve `--lit` to
+       the same slate `--lamp-idle`, so the jewel — the thing the eye lands on — is identical grey
+       either way. Only the small status word differs.
+
+       Four candidates, each applied to the REAL card widget with the REAL stylesheets. Only the
+       data is fake, and it MOVES: the right-hand column drops its link and reconnects on a loop,
+       because the thing being judged is whether CONNECTED and NOT CONNECTED are telling apart at a
+       glance — which a static card cannot show.
+
+       Serve the repo (npx http-server . -p 8791); the fonts are same-origin. -->
+  <link rel="stylesheet" href="../styles/main.css" />
+  <link rel="stylesheet" href="../styles/skins.css" />
+
+  <style>
+    /* ── Page chrome (mock only — none of this ships) ────────────────────────────────── */
+    .mk-head { padding: 14px 18px 4px; }
+    .mk-h1 { font-family: var(--font-legend, sans-serif); font-size: 15px; letter-spacing: .14em;
+             text-transform: uppercase; color: var(--legend-hi, #cfd6db); margin: 0 0 4px; }
+    .mk-sub { font-family: var(--font-legend, sans-serif); font-size: 12px; color: var(--legend-mid, #8b969e);
+              margin: 0 0 10px; max-width: 90ch; line-height: 1.5; }
+    .mk-row { padding: 6px 18px 20px; }
+    .mk-label { font-family: var(--font-legend, sans-serif); font-size: 12.5px; letter-spacing: .12em;
+                text-transform: uppercase; color: var(--legend-hi, #cfd6db); margin: 0 0 2px; }
+    .mk-note { font-family: var(--font-legend, sans-serif); font-size: 11.5px; color: var(--legend-mid, #8b969e);
+               margin: 0 0 10px; max-width: 96ch; line-height: 1.45; }
+    .mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(470px, 100%), 1fr));
+               gap: 14px; align-items: start; grid-auto-rows: max-content; }
+    .mk-cap { font-family: var(--font-legend, sans-serif); font-size: 11px; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--legend-mid, #8b969e); margin: 0 0 5px; }
+
+    /* ══ CANDIDATE A — STANDBY JEWEL ══════════════════════════════════════════════════
+       Smallest possible change: connected gets its own lamp colour and a lens that is
+       actually LIT; not-connected gets a lens that is actually DEAD (no glow, no halo,
+       just a dark bead in a ring). No new DOM at all. */
+    .cand-a.job-card[data-status='online'] { --lit: var(--lamp-ok); }
+    .cand-a.job-card[data-status='online'].job-card--running { --lit: var(--lamp-run); }
+    .cand-a.job-card[data-status='offline'] .jc-jewel,
+    .cand-a.job-card[data-status='connecting'] .jc-jewel {
+      background: radial-gradient(circle at 34% 28%, #2a2f33 10%, #14181b 70%, #0b0e10 100%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset, 0 1px 2px rgba(0,0,0,.6);
+    }
+    .cand-a.job-card[data-status='connecting'] .jc-jewel { animation: mk-wait 1.1s steps(1) infinite; }
+    @keyframes mk-wait {
+      0%, 49%  { background: radial-gradient(circle at 34% 28%, #2a2f33 10%, #14181b 70%, #0b0e10 100%); box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset; }
+      50%,100% { background: radial-gradient(circle at 34% 28%, #fff6de 4%, var(--lamp-wait) 46%, rgba(0,0,0,.75) 100%); box-shadow: 0 0 8px var(--lamp-wait); }
+    }
+
+    /* ══ CANDIDATE B — LINK LAMP + SILKSCREEN ═════════════════════════════════════════
+       A dedicated indicator that says what it is, the way real gear does: a small lamp
+       with the word LINK engraved beside it. The jewel keeps meaning "what is the job
+       doing"; this new lamp means "is there a server on the other end". Two facts, two
+       lamps, neither borrowing the other's colour. */
+    .mk-link { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; flex-shrink: 0; }
+    .mk-link-lamp { width: 8px; height: 8px; border-radius: 50%; background: #14181b;
+                    box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset, 0 1px 1px rgba(0,0,0,.6); }
+    .mk-link-txt { font-family: var(--font-legend, sans-serif); font-size: 9.5px; letter-spacing: .16em;
+                   text-transform: uppercase; color: var(--legend-lo, #5d666d); }
+    .cand-b.job-card[data-status='online'] .mk-link-lamp {
+      background: radial-gradient(circle at 34% 28%, #eafff4 6%, var(--lamp-ok) 50%, rgba(0,0,0,.7) 100%);
+      box-shadow: 0 0 7px var(--lamp-ok);
+    }
+    .cand-b.job-card[data-status='online'] .mk-link-txt { color: var(--lamp-ok); }
+    .cand-b.job-card[data-status='connecting'] .mk-link-lamp {
+      background: radial-gradient(circle at 34% 28%, #fff6de 6%, var(--lamp-wait) 50%, rgba(0,0,0,.7) 100%);
+      box-shadow: 0 0 6px var(--lamp-wait); animation: mk-blink 1s steps(1) infinite;
+    }
+    @keyframes mk-blink { 50% { opacity: .25; } }
+
+    /* ══ CANDIDATE C — HEARTBEAT ══════════════════════════════════════════════════════
+       The others assert the link; this one PROVES it. The collector pushes a snapshot
+       every 500ms, and the lamp ticks on each arrival — so a frozen lamp means the data
+       actually stopped, which is a stronger claim than any colour. */
+    .cand-c.job-card[data-status='online'] { --lit: var(--lamp-ok); }
+    .cand-c.job-card[data-status='online'].job-card--running { --lit: var(--lamp-run); }
+    .cand-c.job-card[data-status='offline'] .jc-jewel,
+    .cand-c.job-card[data-status='connecting'] .jc-jewel {
+      background: radial-gradient(circle at 34% 28%, #2a2f33 10%, #14181b 70%, #0b0e10 100%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset;
+    }
+    .cand-c .jc-jewel { animation: none !important; }
+    .cand-c.job-card[data-status='online'] .jc-jewel.mk-beat { animation: mk-beat .5s ease-out 1 !important; }
+    @keyframes mk-beat {
+      0%   { box-shadow: 0 0 3px var(--lit), 0 0 1px 1px rgba(0,0,0,.7) inset; }
+      18%  { box-shadow: 0 0 13px var(--lit), 0 0 2px 1px rgba(0,0,0,.7) inset; }
+      100% { box-shadow: 0 0 6px var(--lit), 0 0 1px 1px rgba(0,0,0,.7) inset; }
+    }
+
+    /* ══ CANDIDATE D — LIVE NAMEPLATE ═════════════════════════════════════════════════
+       Reads at rack distance rather than at jewel distance: the whole nameplate goes
+       from engraved-dead to lit-and-underlined when the host answers. The biggest target
+       on the card carries the fact, so it survives being glanced at from across a room. */
+    .cand-d.job-card[data-status='online'] { --lit: var(--lamp-ok); }
+    .cand-d.job-card[data-status='online'].job-card--running { --lit: var(--lamp-run); }
+    .cand-d.job-card[data-status='online'] .jc-name {
+      color: var(--lit); text-shadow: 0 0 10px color-mix(in srgb, var(--lit) 45%, transparent);
+      border-bottom: 1px solid var(--lit); padding-bottom: 2px;
+    }
+    .cand-d.job-card[data-status='offline'] .jc-jewel,
+    .cand-d.job-card[data-status='connecting'] .jc-jewel {
+      background: radial-gradient(circle at 34% 28%, #2a2f33 10%, #14181b 70%, #0b0e10 100%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset;
+    }
+
+    /* Today's behaviour, for reference — no candidate class at all. */
+  </style>
+</head>
+<body class="skin-rack size-normal">
+  <div id="app">
+    <div id="topbar">
+      <span id="topbar-title">Connected indicator — candidates</span>
+      <div id="topbar-controls">
+        <select id="skin-select" title="Look">
+          <option value="rack" selected>1U Rack</option>
+          <option value="glass">Obsidian Glass</option>
+          <option value="halo">Obsidian Halo</option>
+        </select>
+        <select id="size-select" title="Module size">
+          <option value="compact">Compact</option>
+          <option value="normal" selected>Normal</option>
+          <option value="large">Large</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mk-head">
+      <p class="mk-h1">Can you tell, at a glance, which of these is talking to a live ComfyUI?</p>
+      <p class="mk-sub">
+        Every block below shows the same four hosts: one running a job, one connected but idle, one
+        still connecting, one that is not there. The fourth card in each block drops its link and
+        reconnects on a loop, so you can watch the transition rather than imagine it.
+        Today's card is first, unchanged, for comparison.
+      </p>
+    </div>
+
+    <div id="blocks"></div>
+  </div>
+
+  <script src="widgets/lcd.js"></script>
+  <script src="widgets/job-card.js"></script>
+  <script>
+  (function () {
+    const blocks = document.getElementById('blocks');
+
+    const CANDIDATES = [
+      { cls: '',       name: 'Today — unchanged',
+        note: 'Online-idle and offline both resolve --lit to the same slate grey, so the jewel is identical on both. This is the card that made ComfyUI look down when it was up.' },
+      { cls: 'cand-a', name: 'A — Standby jewel',
+        note: 'No new parts: connected lights the existing jewel jade, not-connected leaves a genuinely dead lens. Connecting winks amber.' },
+      { cls: 'cand-b', name: 'B — LINK lamp + silkscreen',
+        note: 'A second lamp that says what it is. The jewel keeps meaning "what is the job doing"; LINK means "is a server answering". Two facts, two lamps.' },
+      { cls: 'cand-c', name: 'C — Heartbeat',
+        note: 'Ticks on every snapshot the collector pushes (~2/sec), so a frozen lamp means the data really stopped. Proves the link instead of asserting it.' },
+      { cls: 'cand-d', name: 'D — Live nameplate',
+        note: 'The largest thing on the faceplate carries the fact, so it reads from across the room instead of at jewel distance.' },
+    ];
+
+    // Snapshots in the exact shape the collectors push.
+    function seed() {
+      return [
+        { label: 'Running a job', host: 'New Main', kind: 'comfyui', snap: {
+            status: 'online', queueRemaining: 2, relay: true,
+            currentJob: { step: 3, maxSteps: 8, stepsPerSec: 0.31, etaSec: 16, elapsedSec: 96,
+                          node: '9', nodeName: 'KSampler', model: 'flux2-klein-Q8.gguf',
+                          size: '1024x1024', batch: 4, pass: 2, passTotal: 28 } } },
+        { label: 'Connected, nothing queued', host: 'Secondary', kind: 'comfyui', snap: {
+            status: 'online', queueRemaining: 0, relay: null, currentJob: null } },
+        { label: 'Still connecting', host: 'Render Box', kind: 'comfyui', snap: {
+            status: 'connecting', queueRemaining: 0, relay: null, currentJob: null } },
+        { label: 'Drops and reconnects on a loop', host: 'Flaky Host', kind: 'comfyui', flap: true, snap: {
+            status: 'online', queueRemaining: 0, relay: null, currentJob: null } },
+      ];
+    }
+
+    const built = [];
+    for (const cand of CANDIDATES) {
+      const wrap = document.createElement('div');
+      wrap.className = 'mk-row';
+      const h = document.createElement('p'); h.className = 'mk-label'; h.textContent = cand.name;
+      const n = document.createElement('p'); n.className = 'mk-note'; n.textContent = cand.note;
+      const grid = document.createElement('div'); grid.className = 'mk-grid';
+      wrap.append(h, n, grid);
+      blocks.appendChild(wrap);
+
+      for (const host of seed()) {
+        const cell = document.createElement('div');
+        const cap = document.createElement('p'); cap.className = 'mk-cap'; cap.textContent = host.label;
+        const card = window.Widgets.createCard(host.host, host.kind);
+        if (cand.cls) card.classList.add(cand.cls);
+        // Candidate B's extra lamp is added here rather than in job-card.js — nothing ships
+        // until one of these is picked.
+        if (cand.cls === 'cand-b') {
+          const link = document.createElement('span');
+          link.className = 'mk-link';
+          const lamp = document.createElement('span'); lamp.className = 'mk-link-lamp';
+          const txt = document.createElement('span'); txt.className = 'mk-link-txt'; txt.textContent = 'Link';
+          link.append(lamp, txt);
+          card.querySelector('.jc-head').appendChild(link);
+        }
+        cell.append(cap, card);
+        grid.appendChild(cell);
+        built.push({ card, host, cand });
+      }
+    }
+
+    // ── Fake data that moves, the way a live host would ────────────────────────────────
+    let t = 0;
+    setInterval(() => {
+      t += 0.5;
+      for (const b of built) {
+        const s = b.host.snap;
+
+        // The flapping host: online for 6s, offline for 4s, one second of connecting between.
+        if (b.host.flap) {
+          const phase = Math.floor(t) % 12;
+          s.status = phase < 6 ? 'online' : phase < 7 ? 'offline' : phase < 11 ? 'offline' : 'connecting';
+          s.lastError = s.status === 'offline' ? 'ECONNREFUSED' : null;
+        }
+
+        const job = s.currentJob;
+        if (job) {
+          job.elapsedSec += 0.5;
+          if (t % 3 === 0) {
+            job.step = job.step >= job.maxSteps ? 1 : job.step + 1;
+            job.stepsPerSec = 0.26 + Math.abs(Math.sin(t / 7)) * 0.12;
+            job.etaSec = Math.round((job.maxSteps - job.step) / job.stepsPerSec);
+          }
+        }
+
+        window.Widgets.updateCard(b.card, b.host.host, s);
+
+        // Candidate C beats once per push — retrigger the animation by reflow.
+        if (b.cand.cls === 'cand-c' && s.status === 'online') {
+          const j = b.card.querySelector('.jc-jewel');
+          j.classList.remove('mk-beat'); void j.offsetWidth; j.classList.add('mk-beat');
+        }
+      }
+    }, 500);
+
+    // Skin + size selectors behave exactly as renderer.js's do.
+    const body = document.body;
+    document.getElementById('skin-select').addEventListener('change', e => {
+      body.className = body.className.replace(/skin-\S+/, 'skin-' + e.target.value);
+    });
+    document.getElementById('size-select').addEventListener('change', e => {
+      body.className = body.className.replace(/size-\S+/, 'size-' + e.target.value);
+    });
+  })();
+  </script>
+</body>
+</html>
