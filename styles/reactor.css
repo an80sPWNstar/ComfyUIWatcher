@@ -38,6 +38,17 @@ body.layout-reactor.size-large { --card-min: 660px; }
 .pan--ok { --lit: var(--p-ok); }
 .pan--err { --lit: var(--p-err); }
 
+/* CONNECTED IS A LIT STATE, NOT AN ABSENT ONE. `--lit` defaults to slate idle, which meant a host
+   that was answering perfectly well lit nothing: grey jewel, grey STANDBY, and an all-dark
+   annunciator bank. That is what an app talking to nobody looks like too, and mistaking one for
+   the other costs real time (Bryan, 2026-08-18). A reachable host now holds the jade standby
+   colour, which the jewel, the STANDBY word and the LINK UP lamp all read from.
+
+   The :not() chain is load-bearing: what a host is DOING outranks the fact that it answered, so
+   running/finished/fault keep their own colour. Written as a plain `.pan[data-status='online']`
+   this would outrank `.pan--run` on specificity and repaint every running panel jade. */
+.pan[data-status='online']:not(.pan--run):not(.pan--ok):not(.pan--err) { --lit: var(--p-ok); }
+
 /* P1 · CONTROL ROOM — painted steel, warm lamps, ivory faces. */
 .pan--room {
   --p-face: #2B2F32;
@@ -185,11 +196,14 @@ body.layout-reactor.size-large { --card-min: 660px; }
 }
 
 /* ── Annunciator bank ── */
-/* Eight across on a panel wide enough to read them, two rows of four below that. A control room
-   packs its annunciators into one bank; two rows here cost 28px of panel for nothing but habit. */
+/* NINE across on a panel wide enough to read them, three rows of three below that. A control room
+   packs its annunciators into one bank; extra rows here cost 28px of panel for nothing but habit.
+   The column count IS the tile count on purpose: at 8 columns the ninth lamp wrapped onto a row of
+   its own, and at 4 it sat alone on a third row — either way the bank grew a ragged half-empty
+   line. 9 and 3 both divide it exactly. */
 .p-ann {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(9, 1fr);
   gap: 4px;
   margin-bottom: 9px;
 }
@@ -1029,7 +1043,7 @@ svg.p-svg {
    than the layout one below: the tiles run out of room for their words long before the instruments
    run out of room to sit abreast. */
 @container (max-width: 760px) {
-  .p-ann { grid-template-columns: repeat(4, 1fr); }
+  .p-ann { grid-template-columns: repeat(3, 1fr); }
 }
 
 @container (max-width: 470px) {

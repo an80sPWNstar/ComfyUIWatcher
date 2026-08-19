@@ -370,6 +370,22 @@ read as a spaceship HUD). The old arc gauge is gone too.
   The NO SIGNAL legend is light ink on an unlit face and **dark ink on a lit one**
   (`.meter--nosignal:not(.meter--dark)`) — written for the dark face only, it washed out to nothing
   once the lamp stayed on.
+- **CONNECTED IS A LIT STATE, AND IT IS SAID TWICE** (added 2026-08-18, Bryan: "it's too easy to
+  think comfyui isn't running and that causes issues"). Two independent changes, because they
+  answer two different questions and one lamp cannot mean two things:
+  - `--lit` goes **jade** for a reachable host (`[data-status='online']`), so the jewel, numerals
+    and node strip all say "this box is there". It was slate — **the exact same slate an OFFLINE
+    card shows**, measured `#7C8A94` on both — which is what made a healthy idle instance look
+    down. What a host is DOING still outranks it: the rule carries
+    `:not(.job-card--running):not(.job-card--finished-success):not(.job-card--finished-error)`,
+    because written as a bare attribute selector it beats `.job-card--running` on specificity and
+    repaints a running card jade. The reactor's `.pan[data-status='online']` rule needs the same
+    `:not()` chain for the same reason, and there it also lights the STANDBY word, which reads
+    `--lit`.
+  - **A LINK lamp with its own silkscreen** (`.jc-link`) sits left of the status word: dark lens =
+    nothing on the other end, jade = a server is answering, amber blink = still connecting. The
+    jewel carries job state and cannot also carry link state. Its reactor equivalent is the
+    **LINK UP annunciator** — see the reactor section.
 - **Only a host that is NOT THERE collapses to a blanking panel** (`.job-card--blank`): offline,
   unreachable, still connecting — nameplate, lamp, one state word, no instruments. **An ONLINE host
   keeps its instruments even when idle** (revised 2026-08-13 at Bryan's request; the earlier rule
@@ -605,8 +621,14 @@ because from the desk "what does the rack look like" is one question.
 
 Everything on the panel is driven by a field a collector actually reports — that is what makes the
 density honest, and it is the rule to hold any addition to:
-- **Annunciator bank**, 8 tiles: Reactor Run / Queued / Batch Run / No Step Data / Relay Absent /
-  Cycle Done / Fault / Offline. **An unlit tile is a real "not true"**, never "no room left". A tile
+- **Annunciator bank**, 9 tiles: Reactor Run / Queued / Batch Run / No Step Data / Relay Absent /
+  Cycle Done / Fault / Offline / **Link Up**. The ninth was added 2026-08-18: the other eight are
+  all "busy" or "wrong", so a connected idle host lit **nothing at all**, and eight dark tiles over
+  a grey jewel is exactly what an app talking to nobody shows. LINK UP is the one positive lamp —
+  a server is answering — and it sits beside OFFLINE because they are two halves of one fact.
+  **The bank's column count IS the tile count**: `repeat(9, 1fr)` wide, `repeat(3, 1fr)` narrow.
+  Left at 8 and 4, the ninth lamp wrapped onto a row of its own and the bank grew a ragged
+  half-empty line (measured +29px of panel for one tile). **An unlit tile is a real "not true"**, never "no room left". A tile
   flashes 3× on first becoming true, then holds. `relay` was the only snapshot field the rack card
   ignored; here it has a lamp, and it follows the collector's own rule (false is claimed only after
   a job has run 10s with no relay traffic, so an idle host never accuses anyone).

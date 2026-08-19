@@ -717,6 +717,11 @@
     { key: 'done', text: 'Cycle Done', tone: 'ok' },
     { key: 'fault', text: 'Fault', tone: 'err' },
     { key: 'offline', text: 'Offline', tone: 'err' },
+    // The bank's other eight lamps are all "busy" or "wrong", so a healthy idle host lit NOTHING
+    // and read exactly like an app talking to nobody ("it's too easy to think comfyui isn't
+    // running and that causes issues" — Bryan, 2026-08-18). LINK UP is the one positive lamp:
+    // a server is answering. It sits beside OFFLINE because they are the two halves of one fact.
+    { key: 'link', text: 'Link Up', tone: 'ok' },
   ];
 
   // What a panel of each kind reads. Same split as the rack card's KINDS: a trainer differs only in
@@ -955,6 +960,7 @@
       done: job?.finished === 'success',
       fault: job?.finished === 'error',
       offline: !online,
+      link: online,
     };
     for (const a of ANNUNCIATORS) {
       const tile = p.tiles[a.key];

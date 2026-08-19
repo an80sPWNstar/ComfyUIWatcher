@@ -23,9 +23,9 @@
 
        Serve the repo (npx http-server . -p 8791); the fonts are same-origin. Nothing here ships
        until one candidate is picked. -->
-  <link rel="stylesheet" href="../styles/main.css" />
-  <link rel="stylesheet" href="../styles/skins.css" />
-  <link rel="stylesheet" href="../styles/reactor.css" />
+  <link rel="stylesheet" href="../styles/main.css?dev" />
+  <link rel="stylesheet" href="../styles/skins.css?dev" />
+  <link rel="stylesheet" href="../styles/reactor.css?dev" />
 
   <style>
     /* ── Page chrome (mock only — none of this ships) ────────────────────────────────── */
@@ -188,9 +188,9 @@
     <div id="blocks"></div>
   </div>
 
-  <script src="widgets/lcd.js"></script>
-  <script src="widgets/job-card.js"></script>
-  <script src="widgets/reactor-panel.js"></script>
+  <script src="widgets/lcd.js?dev"></script>
+  <script src="widgets/job-card.js?dev"></script>
+  <script src="widgets/reactor-panel.js?dev"></script>
   <script>
   (function () {
     const blocks = document.getElementById('blocks');

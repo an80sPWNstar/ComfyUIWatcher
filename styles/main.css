@@ -356,6 +356,15 @@ body {
 .job-card--drop-before::after { left: 2px; }
 .job-card--drop-after::after { right: 2px; }
 
+/* CONNECTED IS A LIT STATE. An online-idle card and an offline card both resolved `--lit` to the
+   same slate #7C8A94 — literally the same jewel — so the rack could not tell "ComfyUI is up and
+   waiting" from "ComfyUI is down" (Bryan, 2026-08-18). A reachable host holds the jade standby
+   colour; what it is DOING still outranks it, hence the :not() chain rather than a bare
+   [data-status='online'], which would outrank .job-card--running and repaint a running card. */
+.job-card[data-status='online']:not(.job-card--running):not(.job-card--finished-success):not(.job-card--finished-error) {
+  --lit: var(--lamp-ok);
+}
+
 .job-card[data-status='offline'] { --lit: var(--lamp-idle); }
 .job-card[data-status='connecting'] { --lit: var(--lamp-wait); }
 .job-card--running { --lit: var(--lamp-run); }
@@ -421,6 +430,47 @@ body {
     0 0 1px 1px rgba(0, 0, 0, 0.7) inset,
     0 1px 2px rgba(0, 0, 0, 0.6);
 }
+
+/* ── LINK lamp: a server is answering, said in its own words ──
+   Deliberately NOT the jewel: the jewel carries job state, and one lamp cannot mean two things.
+   Dark is a real "no link", so an offline module shows a dead lens rather than a missing part. */
+.jc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.jc-link-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #14181B;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.jc-link-txt {
+  font-family: var(--font-legend);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--legend-lo);
+}
+
+.job-card[data-status='online'] .jc-link-lamp {
+  background: radial-gradient(circle at 34% 28%, #EAFFF4 6%, var(--lamp-ok) 50%, rgba(0, 0, 0, 0.7) 100%);
+  box-shadow: 0 0 7px var(--lamp-ok);
+}
+
+.job-card[data-status='online'] .jc-link-txt { color: var(--lamp-ok); }
+
+.job-card[data-status='connecting'] .jc-link-lamp {
+  background: radial-gradient(circle at 34% 28%, #FFF6DE 6%, var(--lamp-wait) 50%, rgba(0, 0, 0, 0.7) 100%);
+  box-shadow: 0 0 6px var(--lamp-wait);
+  animation: link-blink 1s steps(1) infinite;
+}
+
+@keyframes link-blink { 50% { opacity: 0.22; } }
 
 .job-card--running .jc-jewel {
   animation: jewel-pulse 2.2s ease-in-out infinite;
@@ -1320,6 +1370,7 @@ select.settings-input option {
 
 @media (prefers-reduced-motion: reduce) {
   .job-card--running .jc-jewel,
+  .job-card[data-status='connecting'] .jc-link-lamp,
   .job-card--stepless .jc-bar-track::after {
     animation: none;
   }

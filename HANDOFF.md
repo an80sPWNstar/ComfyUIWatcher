@@ -926,3 +926,31 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   `7z e "dist/...Setup <v>.exe" -o<dir> '$PLUGINSDIR/app-64.7z'` then `7z l -slt` and read Method.
 - A running win-unpacked instance LOCKS d3dcompiler_47.dll and fails the next build with EPERM.
   Stop only the win-unpacked processes; Bryan's installed copy is a different path, leave it.
+
+## 2026-08-18 20:50 -- "is it connected?" indicator (A+B), both widget families
+- Bryan's complaint: a connected host reads too much like a missing one, so he assumes ComfyUI is
+  down when it is fine. He picked candidates A+B combined off `renderer/mock-link-lamp.html`, and
+  asked specifically that STANDBY light up as well as a LINK UP box.
+- Two DIFFERENT faults, one per widget family, both fixed:
+  - rack card: online-idle and offline both computed `--lit: #7C8A94`. Same grey jewel.
+  - reactor panel: offline was fine (red jewel + OFFLINE lit); the HEALTHY case lit nothing at all.
+- Shipped: `--lit` jade for `[data-status='online']` (lights jewel + the STANDBY word, which reads
+  `--lit`), a `.jc-link` lamp + silkscreen on the card, and a 9th `Link Up` annunciator on the panel.
+  Bank regridded to `repeat(9,1fr)` / `repeat(3,1fr)` so the tile count divides the columns exactly.
+- **The `:not()` chain on the online rule is load-bearing.** `.pan[data-status='online']` /
+  `.job-card[data-status='online']` written plainly outranks `.pan--run` / `.job-card--running` on
+  specificity and repaints every RUNNING module jade. Caught in the mock before shipping.
+- Verified in the REAL app (playwright _electron, both hosts live): jade jewel, jade STANDBY, LINK UP
+  lit, `--lit` #46C68F. Offline/connecting cannot be produced live, so those were checked through the
+  mock, whose "Today" block carries no candidate class and is therefore the shipped code: offline =
+  slate jewel + dark lens, connecting = amber blink, running = amber `--lit` with the link lamp still
+  jade (two facts, independent).
+- NOT changed, worth a look later: `connecting` still lights the OFFLINE annunciator (`offline:
+  !online`), which predates this work. Arguably it should be its own state rather than claiming the
+  host is offline.
+- Mock gotchas fixed along the way, both cost time: (1) the page auto-scrolled because the flapping
+  host collapses to a blanking panel in all 5 blocks at once and the document lost 2434px per cycle
+  -- its cell now reserves the full height; (2) http-server cached the widget JS, so the page showed
+  the OLD design minutes after an edit. Server now runs `-c-1` AND the mock's script/style tags carry
+  `?dev`. If a mock ever looks like an edit did not land, suspect this first.
+- npm test 5/5. Version still 0.0.10 -- NOTHING REBUILT OR RELEASED for this yet.

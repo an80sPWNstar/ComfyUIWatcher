@@ -144,7 +144,19 @@ function createCard(hostName, kind) {
   phase.className = 'jc-phase';
   const status = document.createElement('span');
   status.className = 'jc-status';
-  head.append(jewel, name, phase, queue, status);
+  // Is anything on the other end? The jewel answers "what is the job doing" and went slate for a
+  // connected-but-idle host — the same slate an offline card shows — so the card could not say
+  // "this host is there" at all. This lamp says only that, and says what it is in silkscreen.
+  const link = document.createElement('span');
+  link.className = 'jc-link';
+  link.title = 'Lit while this host is answering';
+  const linkLamp = document.createElement('span');
+  linkLamp.className = 'jc-link-lamp';
+  const linkTxt = document.createElement('span');
+  linkTxt.className = 'jc-link-txt';
+  linkTxt.textContent = 'Link';
+  link.append(linkLamp, linkTxt);
+  head.append(jewel, name, phase, queue, link, status);
 
   // ── Instrument wells ──
   const body = document.createElement('div');
