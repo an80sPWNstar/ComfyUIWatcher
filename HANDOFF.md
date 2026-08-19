@@ -970,3 +970,22 @@ BLOCKERS for registry publish: comfyui-relay/pyproject.toml PublisherId is "" (B
   with exactly those names, `hstat-beat-a`/`-b` alternating with the colour cycling jade->slate, and
   the pill reading Link Up #46C68F / Offline #E24B3A / Linking #E0B341 across a full flap cycle.
 - npm test 5/5. Still 0.0.10, nothing rebuilt or released.
+
+## 2026-08-18 21:20 -- session close
+- State: main clean and pushed at 8d3ec45. npm test 5/5. Dev app left RUNNING from
+  node_modules/electron (Bryan signs off by using it, not by reading a diff).
+- SHIPPED THIS SESSION: v0.0.10 with all three installers cut from one commit (exe + AppImage +
+  deb, https://github.com/an80sPWNstar/ComfyUIWatcher/releases/tag/v0.0.10), electron-builder
+  pinned to 26.15.7, and the connected-indicator work on both widget families.
+- **UNRELEASED WORK IS NOW SITTING ON MAIN.** v0.0.10's artifacts predate the connected-indicator
+  commits (b6fb058, 8d3ec45), so the released build does NOT have the link pill, the four-tile bank
+  or the ticking status word. Next release must be a version bump, not another asset swap.
+- Open, in the order they are likely to matter:
+  1. Bryan has not yet lived with the new indicator. Wait for his verdict before cutting 0.0.11.
+  2. `connecting` still lights the OFFLINE annunciator (`offline: !online`) — predates this work
+     and is arguably wrong; the header pill now says LINKING correctly, so the tile disagrees with
+     the pill for the duration of a reconnect.
+  3. Relay Absent has no lamp on the reactor panel any more (only the (i) setup panel).
+  4. Still nothing for: window state persistence + tray, a UI to EDIT a host, other trainers.
+- `renderer/mock-link-lamp.html` is kept: its "Today" block is the shipped design, and blocks A-E
+  are the candidates Bryan chose from (he picked A+B). Serve with `npx http-server . -p 8791 -c-1`.
