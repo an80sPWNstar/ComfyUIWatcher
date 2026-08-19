@@ -293,9 +293,25 @@
           }
           cell.append(cap, el);
           grid.appendChild(cell);
-          built.push({ el, host, cand, widget: idiom ? 'reactor' : 'card' });
+          built.push({ el, cell, host, cand, widget: idiom ? 'reactor' : 'card' });
         }
       }
+    }
+
+    // THE FLAPPING HOST MUST NOT RESIZE THE PAGE. Its panel collapses to a blanking panel when
+    // the link drops — correct behaviour, and the whole point of showing it — but it happens in
+    // all five blocks at once, so the document lost 2434px on every cycle (measured 7544 -> 5110)
+    // and everything below slid up under a stationary viewport. scrollY never moved; the CONTENT
+    // did, which is indistinguishable from the page scrolling itself.
+    // (Bryan, 2026-08-18: "it keeps slowly auto scrolling. stop it.")
+    // So its cell keeps the height of its full state and the collapse happens inside a fixed box.
+    function reserveFlapHeight() {
+      for (const b of built) b.cell.style.minHeight = '';
+      requestAnimationFrame(() => {
+        for (const b of built) {
+          if (b.host.flap) b.cell.style.minHeight = Math.ceil(b.cell.getBoundingClientRect().height) + 'px';
+        }
+      });
     }
 
     // ── Fake data that moves, the way a live host would ────────────────────────────────
@@ -353,12 +369,15 @@
     skinSel.addEventListener('change', e => {
       body.className = body.className.replace(/skin-\S+/, 'skin-' + e.target.value);
       build(e.target.value);
+      reserveFlapHeight();
     });
     document.getElementById('size-select').addEventListener('change', e => {
       body.className = body.className.replace(/size-\S+/, 'size-' + e.target.value);
+      reserveFlapHeight();
     });
 
     build(skinSel.value);
+    reserveFlapHeight();
   })();
   </script>
 </body>
